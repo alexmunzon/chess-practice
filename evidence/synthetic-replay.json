@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "kind": "synthetic-observations",
+  "classifierImplemented": false,
+  "hardwareVerified": false,
+  "states": [
+    {
+      "index": 0,
+      "at": 0,
+      "type": "connect",
+      "status": "needs-confirmation",
+      "reason": "source-connected",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 1,
+      "guidanceAllowed": false,
+      "fen": null,
+      "lastMove": null,
+      "historyComplete": false
+    },
+    {
+      "index": 1,
+      "at": 0,
+      "type": "confirm",
+      "status": "stabilizing",
+      "reason": "waiting-for-observations",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 2,
+      "guidanceAllowed": false,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "lastMove": null,
+      "historyComplete": false
+    },
+    {
+      "index": 2,
+      "at": 10,
+      "type": "observation",
+      "status": "stabilizing",
+      "reason": "waiting-for-stability",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 3,
+      "guidanceAllowed": false,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "lastMove": null,
+      "historyComplete": false
+    },
+    {
+      "index": 3,
+      "at": 70,
+      "type": "observation",
+      "status": "ready",
+      "reason": "stable-legal-position",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 4,
+      "guidanceAllowed": true,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "lastMove": null,
+      "historyComplete": false
+    },
+    {
+      "index": 4,
+      "at": 100,
+      "type": "observation",
+      "status": "stabilizing",
+      "reason": "waiting-for-stability",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 5,
+      "guidanceAllowed": false,
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "lastMove": null,
+      "historyComplete": false
+    },
+    {
+      "index": 5,
+      "at": 160,
+      "type": "observation",
+      "status": "ready",
+      "reason": "stable-legal-position",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 6,
+      "guidanceAllowed": true,
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      "lastMove": {
+        "from": "e2",
+        "to": "e4",
+        "san": "e4"
+      },
+      "historyComplete": false
+    },
+    {
+      "index": 6,
+      "at": 1161,
+      "type": "tick",
+      "status": "needs-confirmation",
+      "reason": "observation-timeout",
+      "sourceId": "synthetic-demo",
+      "epoch": 1,
+      "revision": 7,
+      "guidanceAllowed": false,
+      "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      "lastMove": {
+        "from": "e2",
+        "to": "e4",
+        "san": "e4"
+      },
+      "historyComplete": false
+    }
+  ]
+}

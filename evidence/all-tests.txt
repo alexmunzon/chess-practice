@@ -1,0 +1,67 @@
+
+> chess-practice@0.1.0 test
+> node --test tests/*.test.js
+
+✔ real app move handlers block old-position guidance and recover from stale/error responses (34.898416ms)
+✔ starting position perft reference 20, 400, 8902 (1578.441833ms)
+✔ Kiwipete castling perft reference 48, 2039 (393.233417ms)
+✔ castling, en passant, and promotion (7.13425ms)
+✔ mate, stalemate, insufficient material, fifty move (1.911959ms)
+✔ reject incomplete FEN, invalid kings, impossible rights and illegal moves (1.572166ms)
+✔ claimable fifty-move draw permits play; automatic 75-move draw stops, mate takes precedence (4.027291ms)
+✔ provably impossible promotion inventory rejected, legal promoted material allowed (0.398916ms)
+✔ real Stockfish UCI startup and legal best move (1088.853916ms)
+✔ real Stockfish identifies mate in one (560.585541ms)
+✔ terminal position gives no move and confirmation is mandatory (4.224292ms)
+✔ startup timeout, search timeout, cancellation stop and kill (148.117041ms)
+✔ illegal engine output rejected (1.335583ms)
+✔ real Stockfish process cancellation rejects promptly (104.378583ms)
+✔ synthetic observations: starting FEN needs explicit complete human review and two stable frames (24.743583ms)
+✔ synthetic observations: one legal move updates turn, clocks and en passant only after stability (20.471917ms)
+✔ synthetic observations: white castling (39.994875ms)
+✔ synthetic observations: black queenside castling (60.727542ms)
+✔ synthetic observations: en passant (42.265584ms)
+✔ synthetic observations: promotion q (28.054084ms)
+✔ synthetic observations: promotion r (4.811041ms)
+✔ synthetic observations: promotion b (7.765291ms)
+✔ synthetic observations: promotion n (5.167166ms)
+✔ synthetic observations: repeated and reordered callbacks never establish stability or replace current state (16.653625ms)
+✔ synthetic observations: timestamp span is required even with enough distinct frames (29.185792ms)
+✔ synthetic observations: occlusion and low confidence require reconfirmation (24.815208ms)
+✔ synthetic observations: multiple skipped plies and illegal layouts abstain (11.062833ms)
+✔ synthetic observations: visible king and rook never manufacture castling rights (48.176959ms)
+✔ synthetic observations: source swap, edit, disconnect and reconnect revoke guidance (65.735542ms)
+✔ synthetic observations: old epoch cannot replace freshly confirmed reconnect state (17.172ms)
+✔ synthetic observations: timeout cannot be revived by a fresh frame without review (15.251666ms)
+✔ synthetic observations: stale, future and pre-confirmation frames do not establish guidance (2.325083ms)
+✔ synthetic observations: malformed boundary inputs fail closed with bounded shape (11.893292ms)
+✔ synthetic observations: configuration bounds and backward clocks reject (0.562333ms)
+✔ synthetic observations: continued stable board remains ready, but changed board clears readiness immediately (19.44775ms)
+✔ synthetic observations: alternating legal successors reset the stability run (22.546334ms)
+✔ synthetic replay: deterministic JSON events, timeout and document bounds (35.1505ms)
+✔ synthetic observations: claimable fifty-move draw still permits a legal successor (17.336958ms)
+✔ synthetic observations: identical ready frames preserve revision and renew freshness (13.692209ms)
+✔ synthetic observations: changed or uncertain ready frames immediately invalidate prior analysis revision (35.16125ms)
+✔ review draft round-trips complete historical state (3.252959ms)
+✔ piece placement uses fixed algebraic orientation and explicit empty squares (0.443042ms)
+✔ drafts are isolated and preserve rights instead of inventing history (6.325625ms)
+✔ invalid labels geometry metadata and move counters fail closed (1.099417ms)
+✔ syntactically valid drafts still require server legal-position validation (0.097375ms)
+✔ analysis requires a confirmed position (0.593375ms)
+✔ edited positions reject stale analysis (0.245042ms)
+✔ revocation and repeated request discard old callbacks (0.114958ms)
+✔ foreign identity and mismatched FEN are rejected (0.462041ms)
+✔ interruption clears output without reviving confirmation (0.928042ms)
+✔ HTTP health, position, move, invalid and confirmation contracts (137.19375ms)
+✔ new position cancels outstanding engine; stale result cannot publish (15.842542ms)
+✔ server rejects stale even when analyzer ignores abort (9.856ms)
+✔ client disconnect cancels live search (38.967958ms)
+✔ HTTP real Stockfish result echoes identity and normalized position (1007.661917ms)
+ℹ tests 55
+ℹ suites 0
+ℹ pass 55
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2087.319417

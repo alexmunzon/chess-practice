@@ -1,0 +1,36 @@
+Verification UTC: 2026-11-10T21:19:57Z
+v24.21.0
+11.19.0
+
+> chess-practice@0.1.0 test
+> node --test tests/*.test.js
+
+✔ starting position perft reference 20, 400, 8902 (1147.993542ms)
+✔ Kiwipete castling perft reference 48, 2039 (373.359333ms)
+✔ castling, en passant, and promotion (6.642459ms)
+✔ mate, stalemate, insufficient material, fifty move (1.948166ms)
+✔ reject incomplete FEN, invalid kings, impossible rights and illegal moves (0.537ms)
+✔ real Stockfish UCI startup and legal best move (917.325208ms)
+✔ real Stockfish identifies mate in one (460.662042ms)
+✔ terminal position gives no move and confirmation is mandatory (0.834292ms)
+✔ startup timeout, search timeout, cancellation stop and kill (147.524542ms)
+✔ illegal engine output rejected (1.122583ms)
+✔ real Stockfish process cancellation rejects promptly (103.351667ms)
+✔ analysis requires a confirmed position (1.056083ms)
+✔ edited positions reject stale analysis (0.128875ms)
+✔ revocation and repeated request discard old callbacks (0.091708ms)
+✔ foreign identity and mismatched FEN are rejected (0.075334ms)
+✔ interruption clears output without reviving confirmation (1.164708ms)
+✔ HTTP health, position, move, invalid and confirmation contracts (74.408792ms)
+✔ new position cancels outstanding engine; stale result cannot publish (14.556375ms)
+✔ server rejects stale even when analyzer ignores abort (4.670834ms)
+✔ client disconnect cancels live search (39.551083ms)
+✔ HTTP real Stockfish result echoes identity and normalized position (806.799958ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1719.802167

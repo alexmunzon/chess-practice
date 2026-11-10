@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {createDraft,emptyDraft,setDraftPiece,draftFen} from '../src/position-draft.js';
+const start='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+test('review draft round-trips complete historical state',()=>{for(const fen of [start,'4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 25'])assert.equal(draftFen(createDraft(fen)),fen);});
+test('piece placement uses fixed algebraic orientation and explicit empty squares',()=>{const d=emptyDraft();setDraftPiece(d,'a8','k');setDraftPiece(d,'h1','K');setDraftPiece(d,'b4','P');assert.equal(draftFen(d),'k7/8/8/8/1P6/8/8/7K w - - 0 1');setDraftPiece(d,'b4',null);assert.equal(d.board[4][1],null);});
+test('drafts are isolated and preserve rights instead of inventing history',()=>{const a=createDraft(start),b=createDraft(start);setDraftPiece(a,'h1',null);assert.equal(b.board[7][7],'R');assert.equal(a.castling,'KQkq');assert.equal(emptyDraft().castling,'-');});
+test('invalid labels geometry metadata and move counters fail closed',()=>{for(const fen of ['8/8','x7/8/8/8/8/8/8/8 w - - 0 1','9/8/8/8/8/8/8/8 w - - 0 1'])assert.throws(()=>createDraft(fen));for(const patch of [{turn:'?'},{castling:'KK'},{ep:'d4'},{halfmove:-1},{halfmove:1.1},{fullmove:0},{fullmove:NaN},{board:[]}])assert.throws(()=>draftFen({...emptyDraft(),...patch}));assert.throws(()=>setDraftPiece(emptyDraft(),'a0','K'));assert.throws(()=>setDraftPiece(emptyDraft(),'a1','queen'));});
+test('syntactically valid drafts still require server legal-position validation',()=>{assert.equal(draftFen(emptyDraft()),'8/8/8/8/8/8/8/8 w - - 0 1');});

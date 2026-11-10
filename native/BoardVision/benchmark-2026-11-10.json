@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "case": "front",
+      "detected": true,
+      "meanCornerErrorPixels": 11.175460011408054,
+      "proposalCount": 1
+    },
+    {
+      "case": "perspective",
+      "detected": true,
+      "meanCornerErrorPixels": 11.269626692163257,
+      "proposalCount": 1
+    },
+    {
+      "case": "rotation",
+      "detected": true,
+      "meanCornerErrorPixels": 9.735518423847807,
+      "proposalCount": 1
+    },
+    {
+      "case": "blur",
+      "detected": false,
+      "meanCornerErrorPixels": null,
+      "proposalCount": 0
+    },
+    {
+      "case": "glare",
+      "detected": true,
+      "meanCornerErrorPixels": 11.175460011408054,
+      "proposalCount": 1
+    },
+    {
+      "case": "covered",
+      "detected": false,
+      "meanCornerErrorPixels": null,
+      "proposalCount": 1
+    },
+    {
+      "case": "negative",
+      "detected": false,
+      "meanCornerErrorPixels": null,
+      "proposalCount": 1
+    }
+  ],
+  "manualChecks": "passed",
+  "scope": "board-corner calibration only; seven generated fixtures; not real-world or piece recognition accuracy",
+  "realPhoto": {
+    "source": "https://commons.wikimedia.org/wiki/File:Chess_board_opening_staunton.jpg",
+    "author": "Staxringold",
+    "license": "CC BY-SA 3.0",
+    "licenseURL": "https://creativecommons.org/licenses/by-sa/3.0/",
+    "width": 2611,
+    "height": 1699,
+    "status": "abstained",
+    "proposalCount": 0,
+    "cornerGroundTruth": null,
+    "rawMediaInRepository": false
+  }
+}
