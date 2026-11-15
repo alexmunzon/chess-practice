@@ -45,6 +45,9 @@ SATURATED_LEVEL = 250        # all three raw channels at or above this = clipped
 SATURATED_MAX_FRAC = 0.05    # clipped fraction of the square that forces abstention
 GAIN_RANGE = (0.5, 2.0)      # per-frame lighting correction allowed relative to calibration
 MIN_SAMPLES_PER_CLASS = 2    # squares needed for each of the six references
+# Post-freeze addition (v2), after the sweep found blur r=5 wrong-confident squares. Held-out and
+# challenge were re-run with it; v1 results are kept beside the v2 ones. Set to 0 to reproduce v1.
+FRAME_SHARPNESS_MIN = 0.4    # square-boundary contrast vs calibration frame; below = whole frame unknown
 ABSTAIN_BELOW = 0.5          # every component score is scaled so its gate sits at 0.5
 
 # Tile regions (64x64 tile). Pieces in this synthetic style stay inside cols 15-51, rows 5-56.
@@ -162,6 +165,24 @@ def _deep_core(fg):
     return np.where(depth >= floor, depth - floor + 1, 0)  # weight: 1 at the band floor, more deeper in
 
 
+def _sharpness(pixels):
+    """Median light/dark contrast across vertical square boundaries (steepest 3-px step), divided by the
+    contrast 8 px either side (brightness-invariant; drops when the frame is blurred)."""
+    lum = pixels.mean(axis=2)
+    x0, y0 = BOARD_ORIGIN
+    ratios = []
+    for r in range(8):
+        rows = slice(y0 + r * TILE_SIZE + 4, y0 + r * TILE_SIZE + 12)  # top strip, above most pieces
+        for c in range(1, 8):
+            x = x0 + c * TILE_SIZE
+            # steepest 3-px step within +-4 px of the nominal boundary, so small misregistration is tolerated
+            near = max(abs(lum[rows, x + o - 2].mean() - lum[rows, x + o + 1].mean()) for o in range(-4, 5))
+            far = abs(lum[rows, x - 9].mean() - lum[rows, x + 8].mean())
+            if far > 10:
+                ratios.append(near / far)
+    return float(np.median(ratios)) if ratios else 0.0
+
+
 # ------------------------------------------------------------- calibration ----
 def calibrate(start_image_rectified, start_occupancy):
     """Learn six references from one confirmed frame; reject if pixels disagree with the stated occupancy.
@@ -209,7 +230,7 @@ def calibrate(start_image_rectified, start_occupancy):
     if problems:
         raise CalibrationError(f'{len(problems)} square(s) disagree with stated occupancy: '
                                + ', '.join(f'{s}:{r}' for s, r in problems[:8]))
-    return {'emptyRef': [r.tolist() for r in empty_ref],
+    return {'emptyRef': [r.tolist() for r in empty_ref], 'boundarySharpness': _sharpness(smooth),
             'pieceRef': {f'{c}-{"dark" if p else "light"}': v.tolist() for (c, p), v in piece_ref.items()},
             'policy': policy()}
 
@@ -235,6 +256,8 @@ def classify(image_rectified, calibration):
     offset = empty_ref[0] - gain * observed[0]
     if not np.all((gain >= GAIN_RANGE[0]) & (gain <= GAIN_RANGE[1])):
         return _abstain_all('lighting-out-of-range')
+    if _sharpness(smooth) < FRAME_SHARPNESS_MIN * calibration['boundarySharpness']:
+        return _abstain_all('frame-too-blurry')  # blur fakes the lighting correction (v2 gate)
     out = {}
     for i in range(64):
         tile = tiles[i] * gain + offset
@@ -443,6 +466,10 @@ PERTURBATIONS = [
     ('noise', {'sigma': 8}), ('noise', {'sigma': 16}), ('noise', {'sigma': 24}),
     ('glare', {'radius': 40}), ('glare', {'radius': 90}),
     ('misregister', {'dx': 1, 'dy': 0}), ('misregister', {'dx': 2, 'dy': 0}), ('misregister', {'dx': 2, 'dy': 2}),
+    # Stress levels beyond the brief, added after the sweep above showed no wrong-confident squares,
+    # to find where the classifier starts to fail. Thresholds were not changed.
+    ('brightness', {'k': 0.5}), ('blur', {'r': 5.0}), ('noise', {'sigma': 40}),
+    ('misregister', {'dx': 4, 'dy': 4}), ('misregister', {'dx': 8, 'dy': 0}), ('misregister', {'dx': 16, 'dy': 0}),
 ]
 
 

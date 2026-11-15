@@ -234,3 +234,23 @@ Not exercised anywhere real: the `onClose` path (no check kills the WebKit proce
 **Next packets, in order.** (a) Review Replay; apply the open low items; run Replay self-test on the phone with `phone_selftest.sh` (needs phone connected, awake). (b) Apply and verify the recognizer speed patch; measure on phone. (c) Swap the bundled replay game for the special-move game. (d) Wire occupancy inference + pixel classifier + screen detection into one offline "screen board" pipeline on simulated scenes. (e) Mock Device Kit capture path in the Simulator. (f) Refresh the status artifact.
 
 **Decisions waiting on Alex.** Local git checkpoint commit (about 100 uncommitted files; nothing is committed, pushed or distributed). Camera/glasses approval for the first screen-board capture experiment. Whether to download the non-commercial ChessReD dataset (about 29 GB) for the physical-board path.
+
+
+## Checkpoint — Replay game mode 18/18 on the real phone (November 15, 2026, 21:40 Madrid)
+
+Local commit `a13ed1c` holds everything up to the stopping point. After it: Replay mode finished, screen-board detection finished, review fixes to the signing kit. These are uncommitted.
+
+**Replay mode** (`native/ChessCompanionApp/ReplayGame.swift`, `ReplayGameChecks.swift`; mode picker in `ChessCompanionApp.swift`; 14 main frames + 1 occlusion frame pinned in `prepare_app.py`; no manifest or evaluator truth bundled). Mock suite 21/21 with four mutation-failure proofs; existing mock suite 28/28. Simulator self-test (18 checks) on a heavily loaded Mac: 15/18, 17/18, 17/18, 17/18 — all failures were engine deadlines under load (cold-start analysis, and the strict full-game check), none showed anything stale. Evidence: `/Users/alexmunzon/chess-builds/replay-mode-2026-11-15/`.
+
+**Real iPhone 17 / iOS 27.2** — first real use of `signing/phone_selftest.sh` (sign → install → run → fetch → summarize → restore): `phone-run1/selftest-report.json`, SHA-256 `90003729…e79be0`, **18/18, complete, 0 speak requests, exit 0**.
+- Study checks 12/12 as before (recognition 1.44–1.69 s, analysis 1.47–1.61 s).
+- Replay: no analysis before review; after one scripted review the bundled tracker (inside WebKit, first execution on the phone) followed all 14 frames through real native recognition: e4, e5, Nf3, Nc6, Bc4, Nf6. Legal text recommendations at 7 plies (`e2e4 e7e5 g1f3 b8c6 f1b5 f8c5 d2d3`), each legal per the app's own rules reply and bound to (run, epoch, revision, FEN); engine search 1.46–1.62 s; a frame step 1.57–1.67 s (two tracker requests each).
+- Inserted obstructed frame: 16 unknown squares → tracking and recommendation revoked, next good frame stayed in needs-review with 0 tracker requests until a renewed (scripted) review, then tracking resumed (review epoch 2).
+- Stepping during analysis showed nothing stale; tracker and engine never overlapped; leaving the mode revoked.
+- Review in all of this is the scripted fixture. No human has used the Replay screen.
+
+**Phone now has the normal build with Replay mode** (unsigned `e554c369…8e3c02`, signed `ca2f47cf…9a1820`, verified free of self-test strings before install). Not hand-tested.
+
+**Screen-board detection prototype** (`native/ScreenBoardVision/`, `scripts/recognition/make_screen_scenes.py`): on 360 simulated screen scenes it found the board within 1% in 99.5% (dev) / 99.3% (held-out), 0 false accepts including 48 non-board negatives, mean corner error about 0.12 px, about 100 ms per frame on the Mac; iOS typecheck only. Simulated flat screens without lens distortion or moiré; one piece set. Agent-reported, not re-run.
+
+**Still running:** occupancy pixel classifier; recognizer speed-up patch. **Still open:** the low review items listed at the stopping point; recognition at about 1.5 s per frame on the phone is the main speed limit for following a game.
