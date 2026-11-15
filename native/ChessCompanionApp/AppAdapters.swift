@@ -20,24 +20,28 @@ struct StudyResources: Sendable {
                                      "Runtime/runtime-manifest.json": 32 * 1024]
     private static let fixtureLimits = Dictionary(uniqueKeysWithValues: StudyFixture.allCases
         .filter { $0 != .starting }.map { ($0.asset, 8 * 1024 * 1024) })
-    /// Replay-game frames: all fifteen or none, each also pinned by SHA-256 in ReplayFrames.
+    /// Replay-game frames: per bundled game all frames or none, each also pinned by SHA-256 in ReplayFrames.
     private static let replayLimits = Dictionary(uniqueKeysWithValues: ReplayFrames.allAssetNames.map { ($0, ReplayGameModel.maximumFrameBytes) })
 
     private func manifest() throws -> Manifest {
         let manifest = try JSONDecoder().decode(Manifest.self, from: read("app-assets.json", maximum: 16 * 1024))
         let assets = Set(manifest.assets.keys)
-        let base = Set(Self.baseLimits.keys), fixtures = Set(Self.fixtureLimits.keys), replay = Set(Self.replayLimits.keys)
-        let accepted = [base, base.union(fixtures), base.union(replay), base.union(fixtures).union(replay)]
+        let base = Set(Self.baseLimits.keys)
+        // Optional groups: the study fixtures and each replay game, each present completely or not at all.
+        let groups = [Set(Self.fixtureLimits.keys)] + ReplaySequences.all.map { Set($0.allAssets.map(\.asset)) }
+        let extra = assets.subtracting(base)
+        let covered = groups.filter { !$0.isDisjoint(with: extra) }.reduce(Set<String>()) { $0.union($1) }
         guard manifest.schemaVersion == 1, manifest.mode == "private-unsigned-offline-synthetic-study",
-              accepted.contains(assets) else { throw OfflineStudyError.missingResource }
+              assets.isSuperset(of: base), covered == extra else { throw OfflineStudyError.missingResource }
         return manifest
     }
-    /// True only when every replay frame is listed, and each listed hash equals its source pin.
-    func replayAvailable() throws -> Bool {
+    /// The bundled replay games whose every frame is listed with a hash equal to its source pin.
+    func replaySequences() throws -> [ReplaySequence] {
         let assets = try manifest().assets
-        let pins = ReplayFrames.main + [ReplayFrames.interruption]
-        return pins.allSatisfy { assets[$0.asset]?.sha256 == $0.sha256 }
+        return ReplaySequences.all.filter { sequence in sequence.allAssets.allSatisfy { assets[$0.asset]?.sha256 == $0.sha256 } }
     }
+    /// True when at least one replay game is completely bundled and pinned.
+    func replayAvailable() throws -> Bool { try !replaySequences().isEmpty }
     func availableFixtures() throws -> [StudyFixture] {
         let assets = try manifest().assets
         return StudyFixture.allCases.filter { assets[$0.asset] != nil }

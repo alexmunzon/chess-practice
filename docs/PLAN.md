@@ -1,80 +1,142 @@
-# Chess Companion delivery plan
+# Chess Companion plan
 
-Updated November 11, 2026. The user requires the complete runtime **on iPhone 17 / iOS 27.2**, without a Mac runtime service. The Mac remains development/evaluation tooling. The user has no physical chessboard, so development follows [SIMULATION_PLAN.md](SIMULATION_PLAN.md): legal games, rendered image/video recognition, then later authorized glasses capture of a screen board. Layers 1–2 are implemented and verified on generated PNGs and decoded MP4 frames; bounded native modules now exist and a Mac WebKit engine fixture passed. A complete installed/tested iPhone app remains pending. Exact results and limits are in VERIFICATION.md. The manual photo/corner review workflow is implemented and tested. Physical-video recognition and CoreML numerical validation remain failed gates. Missing photo history stays unset and uncertainty revokes queued speech. Existing work and blackjack remain preserved.
+Updated November 15, 2026, 23:00 Madrid. This replaces the November 11–13 plan (see "History of
+the plan" at the end). Exact numbers and the files that prove them are in
+[VERIFICATION.md](VERIFICATION.md), section "Current state (2026-11-15)". The orchestrator's
+handoff is `FABLE-HANDOFF.md`; the append-only evidence log is `HANDOFF.md`.
 
-Original baseline: November 10, 2026. The user pivoted the glasses project from blackjack to chess and asked for a properly planned, comprehensive build using reusable parts. The blackjack repository remains preserved next door. This companion is for private practice or assistance permitted by everyone involved, not covert competition use.
+## Product goal
 
-## Product contract
+A private chess practice companion whose whole runtime runs on Alex's iPhone 17 (iOS 27.2): it
+recognises the board, a person reviews the position, and local chess rules plus the Stockfish
+engine give a move as text (speech later). The eventual camera is Alex's Ray-Ban Meta Gen 1
+glasses, but Alex has no physical board, so all work so far uses computer-generated board images.
+It is for private practice that everyone involved agrees to, not for covert use in real games.
 
-Capture a board, review uncertain pieces and historical game state, validate the position, obtain a strong legal move and speak it with all runtime computation on the iPhone. No stale result may survive a changed board. The computer server and photo evaluator are test tools, not runtime dependencies of the phone design. Bounded Stockfish analysis is strong analysis, not proof of optimal play. No camera system can infer side to move, castling rights, en passant or repetition history from a single board image.
+## The safety rule (this is the product)
 
-## Phase 1: trusted chess core — implemented and integration-tested
+Advice exists only for a position a person has fully reviewed: pieces, side to move, castling,
+en passant and move counters. Any change, uncertain square or interruption revokes the advice, and
+a late reply from the engine can never bring it back. A board picture alone cannot tell whose turn
+it is, castling rights, en passant or repetition history, so the review step is never skipped.
+Engine output is strong bounded analysis, never "perfect play".
 
-- Pinned chess.js rules and Stockfish 19 full single-thread NNUE WASM, local-only execution.
-- Six-field FEN, structural position checks, legal moves, promotions, castling and en passant.
-- Bounded search (maximum three seconds), child-process deadlines and cancellation, legality validation of returned moves.
-- Acceptance: reference perft 20/400/8902 and Kiwipete 48/2039; special-move, checkmate/stalemate, invalid-position and mate-in-one tests; no move without confirmation.
-- Limitation: structural validity is not proof of historical reachability. Imported FEN has no repetition history. Preserve and track move history before claiming full draw adjudication.
+## How to read evidence labels
 
-## Phase 2: usable review and analysis — implemented and integration-tested
+Every status names its evidence type, kept separate:
+**mock** (Swift or JS code with a fake engine/transport), **Mac** (real code run on the Mac),
+**Simulator** (iPhone Simulator on the Mac), **real phone** (Alex's iPhone 17), **scripted review**
+(the self-test ticks the review boxes automatically), **human review** (a person did it).
+"Synthetic" means computer-drawn board images. Synthetic accuracy is never camera or
+physical-board accuracy.
 
-- Responsive keyboard-accessible board, legal practice moves, promotion choice, flip, undo, FEN editor and local reference image.
-- Separate explicit confirmation of pieces, side, castling and en passant before each analysis.
-- Position change, draft edit, cancel, visibility interruption or new request invalidates previous output. Late callbacks cannot restore it.
-- Acceptance: browser flow from starting board to legal move to confirmed analysis; invalid-FEN recovery, cancellation, stale-result tests, local image preview and offline privacy checks.
-- Explicit piece-placement and game-state controls are implemented and tested. Setup is an unvalidated draft until server validation succeeds; confirmation remains separate.
-- Manual photo review now includes image-bound corner selection, canonical orientation and explicit calibration review. Recognition creates a draft only; complete historical state and position confirmation remain separate. Software tests cover the workflow, not physical recognition accuracy.
+## What works today
 
-## Phase 3: board calibration — implemented experimental CLI, not robust recognition
+| Area | State | Evidence type | Where the evidence lives |
+| --- | --- | --- | --- |
+| App installed on the phone, opens | Installed Nov 15; Alex saw it open and stay open | Real phone, human observation | `chess-builds/iphone-2026-11-15/`, `docs/PHONE_INSTALLATION.md` |
+| Rules + Stockfish inside the app (local WebKit runtime, 15 bundled files) | Working, offline | Real phone | `chess-builds/perf-integration-2026-11-15/phone-run2/` |
+| Study mode: one picture, five review ticks, text move | 12 self-test checks pass | Real phone, scripted review | same `phone-run2/` |
+| Replay mode: 14-frame game, one review, legal move tracking, text advice | 6 self-test checks pass (18/18 in total with Study) | Real phone, scripted review | same `phone-run2/` |
+| Safety behaviour (obstruction, untick, reset, background, in-flight switch, step during analysis) | All pass | Real phone, scripted review; also mock | `phone-run2/`, `perf-integration-2026-11-15/mocks/` |
+| Recognition speed | 39–122 ms per picture (was about 1.5 s; cause: app compiled without `-O`) | Real phone | `phone-run2/summary.json`, `docs/RECOGNIZER_PERFORMANCE.md` |
+| Engine search time | 1.5–2.0 s, one 3.5 s search | Real phone | `phone-run2/selftest-report.json` |
+| Mock safety suites | Study 28/28, Replay 21/21, Integration 18/18, ReplayTracker 94/94 | Mock (Mac) | `perf-integration-2026-11-15/mocks/*-run.txt` |
+| Node test suite (`npm test`) | 204 tests, 200 pass, 0 fail, 4 opt-in skipped | Mac | `perf-integration-2026-11-15/npm-test.txt` |
+| Special-move image game (en passant, promotion, both castlings) | Tracked to the exact position on all 26 positions; not yet in the app | Mac, synthetic, scripted review | `docs/SPECIAL_GAME_SEQUENCE.md`, `chess-builds/special-game-2026-11-15/` |
+| Screen-board corner finder (no markers) | Found the board in 99.3–99.5% of 360 simulated scenes, 0 false accepts | Mac, synthetic | `native/ScreenBoardVision/README.md`, `chess-builds/screen-board-2026-11-15/reports/` |
+| Occupancy classifier (empty / white / black per square) | 0 confident errors on dev and held-out synthetic frames after a post-freeze blur fix | Mac, synthetic | `docs/OCCUPANCY_CLASSIFIER.md`, `chess-builds/occupancy-classifier-2026-11-15/` |
+| Move inference from occupancy | 0 wrong moves in 159,235 random plies with perfect readings | Mac, logic only (no images) | `docs/OCCUPANCY_INFERENCE.md`, `chess-builds/occupancy-2026-11-15/` |
+| Phone test in one command (`signing/phone_selftest.sh`) | Used for real three times (two full passes, one interrupted because the phone was asleep) | Real phone | `replay-mode-2026-11-15/phone-run1/`, `perf-integration-2026-11-15/phone-run1..2/` |
 
-- Reused Apple ImageIO/Vision rectangle/CoreImage perspective code from the old evaluation lab.
-- Automatic quadrilateral proposals, reviewed manual four-corner fallback, orientation, normalized board, source-grid overlay, 64 projected square polygons.
-- Acceptance: synthetic perspective/rotation/glare controls, blur/covered negatives, invalid geometry, orientation and explicit calibration review.
-- Current evidence: 4/5 synthetic positives proposed a board; 2/2 negatives rejected. One real physical-board photograph produced no candidates. This is a small diagnostic sample, not an accuracy estimate.
-- Manual calibration is now integrated into the review workflow and tested, including image identity, orientation and crop-coordinate boundaries. No accuracy claim follows from those software tests. Physical-board geometry improvement and independent ground truth remain future evaluation work; synthetic visible-marker geometry is a separate development track.
+The phone now has the optimized **normal** build (no self-test code) with Replay mode.
+**Nobody has used either mode by hand.** The three recognition prototypes are separate and none
+is in the app; the app still recognises with the older template recogniser on marked synthetic
+images.
 
-## Phase 4: pieces and continuous game state — experimental, recognition gate failed
+## Signing deadline
 
-Saved-photo CoreML/ONNX diagnostic implementations and reviewed legal observation tracking exist. The photo API/UI returns drafts only; autonomous vision-to-engine integration is disabled. Real-video performance and numerical validation do not qualify these classifiers for live advice. Remaining work:
+The free Apple signing profile expires **November 22, 2026, 15:22 Madrid**. After that the app on
+the phone will not open until it is re-signed and reinstalled: run
+`native/ChessCompanionApp/signing/renew_profile.sh` (dry-tested only, never used for real), then
+`sign_and_install.sh` with the configured Apple Development identity. A free account must repeat
+this every 7 days.
 
-- Establish a licensed, disjoint development and held-out evaluation set of actual chess boards, including multiple piece sets, camera angles, lighting, clutter, hands, motion, occlusion and orientation.
-- Use a replaceable piece-classifier interface returning per-square label probabilities and explicit unknowns; never manufacture FEN from calibration alone.
-- Score separately: board detection/geometry, piece identity/color, exact board, legal complete position, false confident suggestions, abstention and latency. Keep source-level split to avoid correlated-frame leakage.
-- Begin from human-confirmed setup, then compare candidate observations only against legal successor states. Ambiguity, multiple skipped moves, loss of view or manual corrections must stop suggestions and request review.
-- Dependency: compatible locally runnable model, usable training/evaluation data and its license. No model download, training service, remote image upload or accuracy claim has been approved merely by this plan.
-- Gate for automatic assistance with physical pieces: benchmark measured on independently labeled real images/video. Define acceptance thresholds from a measured baseline, not invented success percentages. Glasses capture of a virtual screen board under `SIMULATION_PLAN.md` is a separate acceptance track and does not establish physical-piece generalization.
+## In progress, no results yet
 
-## Phase 5: capture and glasses — target confirmed, native and hardware validation pending
+Started by other workers on the evening of November 15. Nothing below is verified; claim nothing.
 
-- A bounded offline `RecordedFrameQueue` now carries sequence, monotonic time, source/frame hashes and session epoch; it retains one active and one latest pending frame. Real saved-photo processing and cancellation were exercised. It emits review-only proposals, has no engine/audio connection, and is not a camera SDK adapter. See `LIVE_PIPELINE.md` for its contract and measured latency.
-- The synthetic replay driver is implemented under `SIMULATION_PLAN.md`; its image-recognition results remain separate from real footage. The Swift synthetic recognizer matches the frozen Python decisions over 78 reused PNG frame records / 4,992 square decisions on the Mac, with zero disagreements including abstentions. Its iOS typecheck excludes real package resource bundling. Later glasses capture of a screen board remains a distinct hardware test requiring explicit device authorization.
-- Reuse replay lifecycle and stale-session principles from blackjack; no existing real camera/Bluetooth/glasses implementation exists to transfer.
-- Target is Ray-Ban Meta Wayfarer Gen 1 and the user-confirmed iPhone 17 / iOS 27.2, with all runtime work on the phone. DAT 1.0.1 resolved to the pinned revision. Earlier generic simulator/device `xcodebuild` checks exited before compilation with an iOS 26.2 destination/platform error; subsequent inventory confirmed installed SDKs, and Swift 6.2.4 successfully typechecked and unsigned-linked a minimal device-target DAT import library using the installed iPhoneOS 26.2 SDK. No SDK installation or upgrade was needed for that probe. Full app build/deployment, pairing, camera frames and audio remain unverified; see `HARDWARE_COMPATIBILITY.md`.
-- Native capture/review/output contracts passed 10 Mac mock lifecycle checks and a direct iOS/DAT typecheck. The dormant adapters require an explicitly supplied authorized session; no registration or device operation ran. Media presentation timestamps and receipt time remain separate: real DAT frame capture age is unknown and therefore blocks engine/speech permits. A validated clock mapping is required before live guidance.
-- The phone-local rules/Stockfish WebKit host source typechecks for iOS. After separate browser and expanded-command approvals, the isolated nonpersistent Mac WebKit harness loaded the local bundle, returned a legal Stockfish move and checked cancellation in about 1.48 seconds. Its first restricted-sandbox attempt could not start WebKit services and remains preserved. App packaging and iPhone memory/performance remain separate gates; the subsequent entry cancellation guard is source/typecheck evidence, not a second WebKit execution.
-- Keep camera/microphone/Bluetooth permissions explicit. Use no cloud image transmission by default. Store no captured frames unless deliberately enabled.
-- Gate: physical device capture, interruption/reconnect/background/battery/heat/latency tests; permission-denied and disconnect states clear guidance. Device-specific work cannot be verified without the actual device.
+- Joining the three recognition prototypes into one offline "board on a screen" pipeline.
+- Measuring how often two misread squares fool move inference.
+- Bundling the special-move game into Replay mode.
+- Engine search-budget study (time versus strength, and the slow first search).
+- Mock Device Kit feasibility note (Meta's simulated glasses in the Simulator).
 
-## Phase 6: output, robustness and release
+## Next packets, in priority order (same order as `FABLE-HANDOFF.md`)
 
-- Spoken/visible advice only from a currently confirmed position. Include human-readable move, promotion and check/mate context. Allow immediate stop and repeat, avoid speaking stale moves.
-- Browser local speech, a text-only adapter and dormant native speech source are implemented; phone/glasses output is not validated. Official iOS issue #358 reports streamed camera sessions muting phone audio/TTS on Gen 2. The native coordinator requires a matching stream-stop acknowledgement before permitting its explicitly enabled speech experiment; that guard does not prove audio recovery. Gen 1 behavior and actual audibility must be tested. Displayless Gen 1 has no visual overlay.
-- Security: loopback-only server, same-origin/Host checks, static allowlist, bounded JSON, CSP, no remote analysis, no keys or telemetry. Test browser interruption and resource cleanup.
-- Distribution: preserve BSD chess.js and GPL Stockfish notices, exact locked versions and corresponding source availability. Review packaging obligations before distributing engine binaries. No deployment or external sharing in this milestone.
-- Hardware acceptance is separate from offline tests. Deliver reproducible commands and failures as well as successes.
+1. **Join the recognition prototypes** on simulated scenes: corners (`native/ScreenBoardVision`) →
+   occupancy classifier (`scripts/recognition/occupancy_classifier.py`) → move inference
+   (`src/core/occupancy-move-inference.js`). Measure wrong accepted moves and abstentions end to
+   end. *In progress.*
+2. **Bundle the special-move game** into Replay and run it on the phone, including the promotion
+   prompt. *In progress.*
+3. **Mock Device Kit capture path** in the Simulator: a video file fed through Meta's simulated
+   glasses. No glasses or approval needed. *Feasibility note in progress.*
+4. **Engine budget:** recognition is about 0.1 s, the engine 1.5–2 s; decide search time versus
+   strength. *Study in progress.*
+5. **Housekeeping:** this refresh of PLAN and VERIFICATION; a real-WebKit test of the path where
+   the engine host dies (`onClose`, so far mock only); refresh the private status page.
 
-## Immediate work queue
+## Decisions waiting on Alex
 
-Continue [SIMULATION_PLAN.md](SIMULATION_PLAN.md) with iPhone-local integration. Layers 1–2 already pass the frozen known-template corpus: both PNG and decoded-video runs accepted all 68 positive frames exactly, withheld guidance on all 10 challenge frames and matched all 34 required legal-state checkpoints. The lack of a physical board or accessible public footage does not block those layers. Synthetic-domain results must not qualify either physical-photo model for automatic advice.
+- Try the Replay screen by hand on the phone. This is the only missing human evidence.
+- Camera and glasses approval for the first real screen-board capture experiment.
+- Whether to download the non-commercial ChessReD dataset (about 29 GB) for physical boards.
+- A private off-machine backup (needs a GitHub account and repo name from Alex, plus scrubbing his
+  Apple ID details from `HANDOFF.md` and `docs/PHONE_INSTALLATION.md` first).
+- Sharing the app with anyone first needs the licence steps in `docs/LICENCE_AUDIT.md` (an
+  engine "source pack", the app's own source, visible notices). Private use needs nothing.
 
-The WebKit scheduling timeout is resolved on Mac. All five offline Simulator fixtures have now been exercised: four produced separately rules-checked recommendations; obstruction blocked advice with 16 unknown squares. Actual UI review, invalid FEN, reset and background checks passed. The freshly compiled mock lifecycle suite passed 10/10, including held late replies after switching. Exact actual-UI in-flight fixture-switch timing remains unverified because CUA navigation cannot reliably reach the same one-second search window. See HANDOFF.md and the November 13 quickstart/evidence. The same local Simulator scope is approved; no code defect or additional permission blocker was found. Physical iPhone, glasses and audible output remain separate. Preserve unknown live capture age as a hard output gate.
+## Boundaries
 
-The manual photo/corner workflow is complete with software tests, including image identity, orientation/crop mapping, EXIF dimensions, stale-result rejection and explicit initial-state review. Its proposal stays review-only. It is available alongside simulation but is not evidence of new real-board classifier accuracy.
+**Approved:** Simulator testing; inspecting the connected iPhone and existing signing setup;
+signing, installing and opening the private offline app on the phone for text-only testing with
+the configured Apple Development identity.
 
-The bounded CoreML investigation and subsequent authorized GPU-visible comparison are complete; see `NUMERICAL_DIAGNOSIS.md`. Apple M1 was visible and all four passes per synthetic reference exactly recovered historical outputs, but **1/2,496 logits still failed tolerance**, with all 192 labels matching. The larger earlier restricted-run discrepancy is separately preserved. Reproducing historical outputs is no longer an environment dependency; resolving the remaining numerical outlier still requires evidence, and no correction has been established. The inherited CPU-only reporting bug was fixed, but the model and production runner were not changed. No optimized runner, relaxed tolerance or threshold was adopted.
+**Not approved:** camera, microphone, Bluetooth, glasses capture, audible speech; new accounts,
+spending, credential entry, permanent settings changes; any dataset or model download; push,
+deploy, distribution or a remote. Commit only when Alex asks. Generated binaries, engine files and
+media stay outside the repo (in `/Users/alexmunzon/chess-builds/`).
 
-The older recorded-photo queue measurements were 11.58/11.42 seconds and the one-second cancellation guard worked. Later authorized CoreML reference predictions were **152.88–406.45 ms**, with **1,447.30 ms** shared compile/load. These different runtime conditions and synthetic tensor inputs are separately recorded; neither is a camera-to-speech latency benchmark or justification for changing the production freshness guard. A persistent/single-pass physical-photo runner remains unadopted.
+## Known limits
 
-Two distinct-author public sources were found, but initial DNS failures were followed by explicitly authorized one-attempt downloads that both returned **HTTP 403 Forbidden**. Those routes are closed; no retry/bypass, footage, labels or scores followed. See `PUBLIC_VIDEO_SOURCES.md`. A future real-video experiment still needs accessible licensed media and independently frozen labels. It is separate from immediate synthetic work.
+- **No human use yet.** All phone review so far is the scripted self-test fixture.
+- **Synthetic only.** Every recognition number comes from computer-drawn boards: one piece style,
+  flat images, no lens distortion, moiré, motion blur or real lighting. No camera, glasses or
+  physical-board accuracy exists. Earlier real-photo and real-video recognisers failed their gates
+  and stay disabled (see VERIFICATION.md history).
+- **Recognition prototypes are not joined** and not in the app; the screen-board finder is iOS
+  typecheck only and has never run on a phone.
+- **Move inference** treats promotions as ambiguous by design (ask which piece). One misread
+  square is always rejected; two misreads can fool it, and how often is not yet measured. It needs
+  a correct reviewed start; one wrong accepted move corrupts the rest of the game.
+- **Glasses timing.** Meta's SDK stamps frames with the glasses' clock and documents no mapping to
+  phone time, so frame age cannot be bounded yet; live advice stays blocked until it can. An open
+  Meta issue reports that camera streaming pauses phone audio (seen on Gen 2; Gen 1 untested).
+- **Engine.** Bounded search: strong, not perfect. Moves vary between runs. One slow 3.5 s search
+  seen on the phone.
+- **Not exercised for real:** the `onClose` path when the engine host dies; `renew_profile.sh`.
+- **History.** An imported position has no repetition history, so draw-by-repetition claims are
+  not made.
 
-The recorded-artifact paired evaluator remains development replay, not a new held-out experiment. See `PAIRED_EVALUATION.md`; do not tune on the five reused frames and relabel them as a fresh holdout. Keep completed review/API/legal-tracking regressions passing during phone integration. An optional ordinary glasses capture of the displayed board can test optics without an SDK; continuous capture still needs the native adapter integrated and explicitly authorized device setup. Physical-piece generalization and real audible delivery remain further independent gates.
+## History of the plan
+
+- **Nov 10:** project pivoted from blackjack to chess; six phases planned (rules core, review UI,
+  calibration, pieces and game state, capture and glasses, output and release).
+- **Nov 11:** Alex has no physical board, so work switched to the synthetic simulation track
+  (`docs/SIMULATION_PLAN.md`); real-photo and real-video recognisers failed their gates.
+- **Nov 12–13:** native modules, Mac WebKit engine, Simulator app, private unsigned phone build.
+- **Nov 15:** signed and installed on the phone; self-test mode; Replay mode; `-O` speed fix;
+  three recognition prototypes; research on recognition, glasses SDK and licences.
+
+The full earlier text of this plan is in git: `git show a13ed1c:docs/PLAN.md`.

@@ -15,7 +15,10 @@ import Combine
 //   tracking --step with unknown squares / skipped ply / illegal / repeated or reordered frame /
 //              tracker error / transport failure / anything not a clean advance--> needsReview
 //   tracking|needsReview --edit FEN, review box change--> needsReview (renewed review required)
-//   any --reset, leave mode, background, runtime stopped--> engineStopped
+//   any --reset, choose another game (selectSequence), leave mode, background, runtime stopped--> engineStopped
+//
+// Bundled games (ReplaySequences): the 14-frame opening and the 26-frame special-move game (en
+// passant, captures, promotion, both castlings), each with its own interruption frames.
 //
 // Recommendation rules: analysis only in `tracking` after a clean advance and only between tracker
 // requests; it is bound to (run id, review epoch, tracker revision, FEN) and shown only while all
@@ -29,6 +32,23 @@ import Combine
 struct ReplayFrameAsset: Sendable, Equatable {
     let asset: String
     let sha256: String
+}
+
+/// A frame the person can insert once between two normal frames (obstruction, missing piece).
+struct ReplayInterruption: Sendable, Equatable {
+    let asset: ReplayFrameAsset
+    let title: String          // frame label while it is shown
+    let buttonTitle: String    // "Show ... next"
+}
+
+/// One selectable bundled game: ordered frames plus optional interruption frames. Only pixels and
+/// their pins are bundled; no expected position of any frame is part of the app.
+struct ReplaySequence: Sendable, Equatable, Identifiable {
+    let id: String
+    let title: String
+    let frames: [ReplayFrameAsset]
+    let interruptions: [ReplayInterruption]
+    var allAssets: [ReplayFrameAsset] { frames + interruptions.map(\.asset) }
 }
 
 enum ReplayFrames {
@@ -53,7 +73,60 @@ enum ReplayFrames {
     }
     static let interruption = ReplayFrameAsset(asset: "Replay/interruption.png",
                                                sha256: "c02544067d3aba32b660e1093df77b0c7eac6076984c003bd2454f8c0c192f2b")
-    static var allAssetNames: [String] { main.map(\.asset) + [interruption.asset] }
+
+    /// Special-move game (scripts/simulation/generate-special-game.mjs, 2026-11-15): one frame per
+    /// position, 25 plies with en passant, captures, a promotion and both castlings.
+    private static let specialPins = [
+        "725b4ef13d9a5c7b9319c5e6c90cd0a49b08e118e54261a2575104b1e35d46cb",
+        "7428476f6c3d7e9f0fceda395fa5058283f8057563e193b07da1917e954e49fd",
+        "d86a2b19dd44a6f69d23c98f3e9ecefc7860ad1c63a2deb028e1e487f2d48aab",
+        "2ef9072cc001d98f6e526db8fcdb6ee2bba296f01efeb69db1d3933d2aa66ef3",
+        "6af693ddcb578db2bf8c30f2c3ad62f27ef1d1ea3b3a58dfe7ee7635ee79fd92",
+        "72c9d86d4b1cf4110ccd7bb02ed325305cd38bed1acf0a357cd98320418e2353",
+        "3524a487900def0d01354c3a958de604817d83facbac30485c3f61ed22a6def5",
+        "2a5b2a3d481f6b1f7cc7089365fbe3c2605dbcb58a3f685fddbcf083e36f0e21",
+        "8332f6c64ece084f00787d8146c366482455acf8d9818971c5306456698711f9",
+        "810a5c513bbe8157fb722c8b06d9c26fef4758674f2e04e02affe04072eb53a7",
+        "b3aa16a094673e8cd52bf43ae704725b724b292d58b73421d1fe56e416f43a7b",
+        "a3cbc56210a8ba480ab048aefdd8f1d75d1fa3d2a9bbd2142198377c64713d6b",
+        "010511f431e43644909e6232854224084b61d2ce515de588cea9a03294d55983",
+        "aaead77d0d3aa1e7492e60ad4ad4bc7779c15fc38ae330b466618c73bb265db3",
+        "a9d27fab4b056200ccddcbf6b6600636bd8617dc88cce97149cae7e3f11f43cb",
+        "e3f2ce69f029f5bc103200cc4e80862b25d914521645b56bcd5dbe57379dba2e",
+        "f6a5baee7e025c48113a4473e9a3c67f4f59018a0add2e6e4816c2be340f5eb0",
+        "10a24a4d6b96fca5d2255a7f53b8c10ce91ec520c85ff271612b1ef7eee70e85",
+        "a4bc11dd13665dd13ca2d836f460ba9636363a89b44dbee7e51a29d746796560",
+        "8c99079d5ed9456befdadc6d3a9a11e6ebdd7265af3ed835a2efa4089a38480b",
+        "61c6aaf68e69971904d11c625a9e8cbb846a6a0df916e5e5bf3b083f7853e40a",
+        "b36bbc7d516e0b1a0cc3a41f0f31f823e266959728be3239c494bd09030471d5",
+        "92436aea38886a45b392692ac847fa152cac958734159a0c34f79994a8fefe0b",
+        "ba7e0923174b5559bea3bf1896f6049ecff9d2d71dabb32f9001076eaf328488",
+        "1214c3a1006dc919c02aaa76a4eed861bd8e27edc4f33295f107e6d14c0dc9a3",
+        "3a20461a21011b00a5bc67b1969810afd11241ec99958bca7780a1bad495a3cf",
+    ]
+    static let special: [ReplayFrameAsset] = specialPins.enumerated().map { index, sha in
+        ReplayFrameAsset(asset: String(format: "ReplaySpecial/frame-%03d.png", index), sha256: sha)
+    }
+    static let specialOcclusion = ReplayFrameAsset(asset: "ReplaySpecial/occlusion.png",
+                                                   sha256: "76e6b1c0f1a1564e58c15afc9969e4f7fd324814528a243fc45edc7389c7219c")
+    static let specialMissingPiece = ReplayFrameAsset(asset: "ReplaySpecial/missing-piece.png",
+                                                      sha256: "9c0c9f6c0e11714d262657919c180d4937864f2666d459aed4df25e712a3e22d")
+
+    static var allAssetNames: [String] { ReplaySequences.all.flatMap { $0.allAssets.map(\.asset) } }
+}
+
+enum ReplaySequences {
+    static let opening = ReplaySequence(
+        id: "opening", title: "Opening (14 frames)", frames: ReplayFrames.main,
+        interruptions: [ReplayInterruption(asset: ReplayFrames.interruption, title: "Inserted obstructed frame (interruption)",
+                                           buttonTitle: "Show obstructed frame next")])
+    static let special = ReplaySequence(
+        id: "special", title: "Special moves (26 frames)", frames: ReplayFrames.special,
+        interruptions: [ReplayInterruption(asset: ReplayFrames.specialOcclusion, title: "Inserted obstructed frame (interruption)",
+                                           buttonTitle: "Show obstructed frame next"),
+                        ReplayInterruption(asset: ReplayFrames.specialMissingPiece, title: "Inserted frame with a piece missing (interruption)",
+                                           buttonTitle: "Show frame with a missing piece next")])
+    static let all = [opening, special]
 }
 
 /// The local engine backend plus a tracker transport into the same single-pending local runtime.
@@ -87,8 +160,10 @@ struct ReplayRecommendation: Equatable, Sendable {
     @Published private(set) var ready = false
     @Published private(set) var phase: ReplayPhase = .engineStopped
     @Published private(set) var frameIndex: Int?
-    @Published private(set) var showingInterruption = false
-    @Published private(set) var interruptionQueued = false
+    /// Index (into the selected sequence's interruptions) of the frame queued next / shown now.
+    @Published private(set) var queuedInterruption: Int?
+    @Published private(set) var shownInterruption: Int?
+    @Published private(set) var selectedSequence: ReplaySequence
     @Published private(set) var board: OfflineBoard?
     @Published private(set) var imageBytes: Data?
     @Published private(set) var fen = ""
@@ -106,8 +181,10 @@ struct ReplayRecommendation: Equatable, Sendable {
     @Published private(set) var runID = UUID()
     @Published private(set) var active = true
 
-    let frames: [ReplayFrameAsset]
-    let interruption: ReplayFrameAsset
+    let sequences: [ReplaySequence]
+    var frames: [ReplayFrameAsset] { selectedSequence.frames }
+    var showingInterruption: Bool { shownInterruption != nil }
+    var interruptionQueued: Bool { queuedInterruption != nil }
     private let makeBackend: @MainActor () throws -> any ReplayEngineBackend
     private let recognizer: any OfflineImageRecognizer
     private let loadFrame: @MainActor (ReplayFrameAsset) throws -> Data
@@ -117,25 +194,38 @@ struct ReplayRecommendation: Equatable, Sendable {
     private var generation: UInt64 = 0
     private var nextEpoch: UInt64 = 0
     private var virtualMilliseconds: UInt64 = 0
-    private var sequence: UInt64 = 0
+    private var frameSequence: UInt64 = 0
     private var startTask: Task<Void, Never>?, stepTask: Task<Void, Never>?, analysisTask: Task<Void, Never>?
     private var startToken: UUID?, stepToken: UUID?, analysisToken: UUID?
 
     init(makeBackend: @escaping @MainActor () throws -> any ReplayEngineBackend,
          recognizer: any OfflineImageRecognizer,
          loadFrame: @escaping @MainActor (ReplayFrameAsset) throws -> Data,
-         frames: [ReplayFrameAsset] = ReplayFrames.main, interruption: ReplayFrameAsset = ReplayFrames.interruption) {
+         sequences: [ReplaySequence]) {
         self.makeBackend = makeBackend; self.recognizer = recognizer; self.loadFrame = loadFrame
-        self.frames = frames; self.interruption = interruption
+        let usable = sequences.filter { !$0.frames.isEmpty }
+        self.sequences = usable.isEmpty ? [ReplaySequences.opening] : usable
+        self.selectedSequence = self.sequences[0]
+    }
+    /// One sequence made of the given frames and a single obstructed interruption frame.
+    convenience init(makeBackend: @escaping @MainActor () throws -> any ReplayEngineBackend,
+                     recognizer: any OfflineImageRecognizer,
+                     loadFrame: @escaping @MainActor (ReplayFrameAsset) throws -> Data,
+                     frames: [ReplayFrameAsset] = ReplayFrames.main, interruption: ReplayFrameAsset = ReplayFrames.interruption) {
+        self.init(makeBackend: makeBackend, recognizer: recognizer, loadFrame: loadFrame, sequences: [ReplaySequence(
+            id: "opening", title: ReplaySequences.opening.title, frames: frames,
+            interruptions: [ReplayInterruption(asset: interruption, title: "Inserted obstructed frame (interruption)",
+                                               buttonTitle: "Show obstructed frame next")])])
     }
 
     // MARK: - Derived gates
 
     var busy: Bool { starting || stepping || analyzing }
-    var hasNextFrame: Bool { interruptionQueued || (frameIndex.map { $0 + 1 } ?? 0) < frames.count }
+    var hasNextFrame: Bool { queuedInterruption != nil || (frameIndex.map { $0 + 1 } ?? 0) < frames.count }
     var canStep: Bool { active && ready && !starting && !stepping && hasNextFrame }
     var canQueueInterruption: Bool {
-        active && ready && !stepping && frameIndex != nil && !interruptionQueued && !showingInterruption
+        active && ready && !stepping && frameIndex != nil && queuedInterruption == nil && shownInterruption == nil
+            && !selectedSequence.interruptions.isEmpty
     }
     var canConfirmReview: Bool {
         active && ready && !busy && phase == .needsReview && board?.complete == true && checks.count == ReviewField.allCases.count && !fen.isEmpty
@@ -154,7 +244,9 @@ struct ReplayRecommendation: Equatable, Sendable {
         return result
     }
     var frameLabel: String {
-        if showingInterruption { return "Inserted obstructed frame (interruption)" }
+        if let shown = shownInterruption, selectedSequence.interruptions.indices.contains(shown) {
+            return selectedSequence.interruptions[shown].title
+        }
         guard let frameIndex else { return "No frame read yet" }
         return "Frame \(frameIndex + 1) of \(frames.count)"
     }
@@ -235,7 +327,7 @@ struct ReplayRecommendation: Equatable, Sendable {
                 self.backend = created
                 self.tracker = ReplayTracker(transport: created.makeTrackerTransport(), requestIdPrefix: "replay-")
                 // A new runtime has a new tracker whose virtual clock starts at 0.
-                self.virtualMilliseconds = 0; self.sequence = 0
+                self.virtualMilliseconds = 0; self.frameSequence = 0
                 self.ready = true; self.clearTracking()
                 self.status = self.board == nil ? "Local engine ready. Read the first frame."
                                                 : "Local engine ready. Review the shown frame to start tracking."
@@ -254,9 +346,9 @@ struct ReplayRecommendation: Equatable, Sendable {
         let wasTracking = phase == .tracking
         bump(); cleanAdvance = false
         if !wasTracking { checks = []; fen = "" } // a review belongs to the frame it was made on
-        let interrupt = interruptionQueued
-        let asset = interrupt ? interruption : frames[(frameIndex ?? -1) + 1]
-        let nextIndex = interrupt ? frameIndex : (frameIndex ?? -1) + 1
+        let interrupt = queuedInterruption
+        let asset = interrupt.map { selectedSequence.interruptions[$0].asset } ?? frames[(frameIndex ?? -1) + 1]
+        let nextIndex = interrupt != nil ? frameIndex : (frameIndex ?? -1) + 1
         let previousFEN = trackedFEN, previousRevision = trackedRevision
         let prior = analysisTask
         if prior != nil { analysisTask?.cancel(); backend?.cancel() }
@@ -270,8 +362,8 @@ struct ReplayRecommendation: Equatable, Sendable {
             guard self.current(expected) else { return }
             guard let proposal = await self.read(asset, expected) else { return }
             self.board = proposal.board; self.imageBytes = proposal.bytes
-            self.frameIndex = nextIndex; self.showingInterruption = interrupt
-            if interrupt { self.interruptionQueued = false }
+            self.frameIndex = nextIndex; self.shownInterruption = interrupt
+            if interrupt != nil { self.queuedInterruption = nil }
             guard wasTracking, self.phase == .tracking else {
                 self.phase = .needsReview
                 self.status = proposal.board.complete
@@ -288,10 +380,20 @@ struct ReplayRecommendation: Equatable, Sendable {
         }
     }
 
-    func queueInterruption() {
-        guard canQueueInterruption else { return }
-        interruptionQueued = true
-        status = "The obstructed frame will be shown next."
+    /// Queues interruption `index` of the selected sequence to be shown by the next step.
+    func queueInterruption(_ index: Int = 0) {
+        guard canQueueInterruption, selectedSequence.interruptions.indices.contains(index) else { return }
+        queuedInterruption = index
+        status = index == 0 ? "The obstructed frame will be shown next." : "The frame with a missing piece will be shown next."
+    }
+
+    /// Chooses another bundled game. Like reset: revokes tracking and any recommendation at once,
+    /// cancels in-flight work, stops the engine and clears the frame, draft and review.
+    func selectSequence(_ id: String) {
+        guard let next = sequences.first(where: { $0.id == id }), next.id != selectedSequence.id else { return }
+        reset()
+        selectedSequence = next
+        status = "Switched to \(next.title). Start the local engine and review the first frame to start tracking."
     }
 
     private func read(_ asset: ReplayFrameAsset, _ expected: UInt64) async -> (bytes: Data, board: OfflineBoard)? {
@@ -326,8 +428,8 @@ struct ReplayRecommendation: Equatable, Sendable {
         }
         var last: ReplayTrackingState?
         for _ in 0..<Self.observationsPerFrame {
-            sequence += 1; virtualMilliseconds += Self.virtualStepMilliseconds
-            let frame = ReplayFrame(session: session, sequence: sequence, frameSha256: board.sha256,
+            frameSequence += 1; virtualMilliseconds += Self.virtualStepMilliseconds
+            let frame = ReplayFrame(session: session, sequence: frameSequence, frameSha256: board.sha256,
                                     capturedAtMs: virtualMilliseconds, squares: squares)
             let outcome = await tracker.observe(frame)
             guard current(expected) else { return false }
@@ -468,7 +570,7 @@ struct ReplayRecommendation: Equatable, Sendable {
 
     func reset() {
         bump(); cancelInFlight(); closeBackend()
-        board = nil; imageBytes = nil; frameIndex = nil; showingInterruption = false; interruptionQueued = false
+        board = nil; imageBytes = nil; frameIndex = nil; shownInterruption = nil; queuedInterruption = nil
         fen = ""; checks = []; runID = UUID()
         clearTracking()
         status = "Replay reset. No camera or glasses session is active."
@@ -487,12 +589,20 @@ struct ReplayGameView: View {
                 Section("Replay game") {
                     Text("Saved synthetic frames are replayed in order. This is not a live camera, and no capture time is shown.")
                         .font(.footnote)
+                    if model.sequences.count > 1 {
+                        Picker("Game", selection: Binding(get: { model.selectedSequence.id }, set: { model.selectSequence($0) })) {
+                            ForEach(model.sequences) { sequence in Text(sequence.title).tag(sequence.id) }
+                        }.accessibilityIdentifier("replay-sequence")
+                        Text("Choosing another game stops tracking and the engine.").font(.footnote)
+                    }
                     Text(model.status).accessibilityIdentifier("replay-status")
                     Text(model.frameLabel).font(.subheadline).accessibilityIdentifier("replay-frame")
                     if model.ready {
                         Button(model.frameIndex == nil && !model.showingInterruption ? "Read first frame" : "Next frame") { model.step() }
                             .disabled(!model.canStep)
-                        Button("Show obstructed frame next") { model.queueInterruption() }.disabled(!model.canQueueInterruption)
+                        ForEach(Array(model.selectedSequence.interruptions.enumerated()), id: \.offset) { index, interruption in
+                            Button(interruption.buttonTitle) { model.queueInterruption(index) }.disabled(!model.canQueueInterruption)
+                        }
                     } else {
                         Button("Start local engine") { model.start() }.disabled(model.busy || !model.active)
                     }

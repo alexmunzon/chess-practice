@@ -1,6 +1,100 @@
+# Current state (2026-11-15)
+
+Written November 15, 2026, 23:00 Madrid, at commit `ccb37bf` on `main`. **This section supersedes
+every older section below.** Those older sections are history: they stay exactly as written,
+including their Codex evidence paths, and where they say something is "pending", "untested" or
+give an older test count, this section is the current answer.
+
+Short names: `CB` = `/Users/alexmunzon/chess-builds`. Evidence types are kept separate:
+**mock**, **Mac**, **Simulator**, **real phone**, **scripted review**, **human review**.
+"Synthetic" = computer-drawn board images; synthetic accuracy is never camera or physical-board
+accuracy. Nothing here is "hardware validated" and no engine result is "perfect play".
+
+### Test suite
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Node test suite | 204 tests, 200 pass, 0 fail, 4 opt-in skipped | Mac | `npm test` (run outside the command sandbox); log `CB/perf-integration-2026-11-15/npm-test.txt`; re-confirmed by the orchestrator at 22:25 | 2026-11-15 |
+
+### Phone (iPhone 17, iOS 27.2)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| App installed and opens | Profile checks 40/40; signed-product checks 29/29; Alex saw it open and stay open | Real phone; human observation of opening only | `CB/iphone-2026-11-15/evidence/profile-validation.json`, `signed-product-validation.json`; `docs/PHONE_INSTALLATION.md` | 2026-11-15 |
+| Signing profile expiry | 2026-11-22 14:22:26 UTC = 15:22 Madrid; after that the app will not open until re-signed and reinstalled | Real phone (profile file) | `CB/iphone-2026-11-15/evidence/profile-validation.json` (`expiresUTC`) | 2026-11-15 |
+| First self-test on the phone (12-file runtime) | 12/12, complete, 0 speak requests; report SHA-256 starts `43679b46` | Real phone, scripted review | `CB/selftest-2026-11-15/phone-run4/selftest-report.json` | 2026-11-15 |
+| Self-test with tracker bundled (15-file runtime) | 12/12, complete, 0 speak requests; SHA-256 starts `42f92f62` | Real phone, scripted review | `CB/integration-2026-11-15/phone-run1/selftest-report.json` | 2026-11-15 |
+| Replay mode, unoptimized build | 18/18 (12 Study + 6 Replay); recognition 1,442–1,538 ms in the shown fixtures | Real phone, scripted review | `CB/replay-mode-2026-11-15/phone-run1/summary.txt` | 2026-11-15 |
+| Optimized build, first attempt | Interrupted, exit 3, 0/7 (app started inactive; "engine not ready"); no timing evidence | Real phone | `CB/perf-integration-2026-11-15/phone-run1/summary.txt` | 2026-11-15 |
+| **Optimized build, latest** | **18/18**, complete, 0 speak requests, exit 0 | Real phone, scripted review | `CB/perf-integration-2026-11-15/phone-run2/summary.txt`, `selftest-report.json` | 2026-11-15 |
+| Recognition time per picture (optimized) | 39–122 ms (unoptimized builds: about 1,440–1,830 ms, per `HANDOFF.md` checkpoints) | Real phone | `phone-run2/summary.json` (`timingsMs.recognition`) | 2026-11-15 |
+| Replay frame step (recognition + 2 tracker requests) | 52–88 ms per game frame (first frame 25.5 ms) | Real phone | `phone-run2/selftest-report.json` (`steps[].stepMs`) | 2026-11-15 |
+| Engine search time | 1,504–1,986 ms, plus one 3,463 ms search (after-e4 fixture) | Real phone | `phone-run2/summary.json` and `selftest-report.json` (`engineSearchMs`) | 2026-11-15 |
+| Replay game followed | 14 frames, 7 legal text recommendations; obstructed frame (16 unknown squares) revoked tracking until a renewed review | Real phone, scripted review | `phone-run2/selftest-report.json` (the `replay-*` checks) | 2026-11-15 |
+| Safety checks on the phone | Obstruction, four-of-five review, side-to-move `x`, untick, in-flight switch, background handler, reset, step during analysis, tracker/engine never concurrent, leaving mode: all pass | Real phone, scripted review | `phone-run2/summary.txt` | 2026-11-15 |
+| Build now on the phone | Optimized normal build with Replay mode, 0 self-test strings; never used by hand | Real phone | `HANDOFF.md` checkpoint 22:18; `CB/perf-integration-2026-11-15/device-normal` | 2026-11-15 |
+
+The background check calls the app's handler in-process; it is not real backgrounding by a
+person. The in-flight switch is event ordering inside the self-test, not finger-driven timing.
+
+### Simulator and mocks
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Replay mode in the Simulator, unoptimized, heavily loaded Mac | 15/18, 17/18, 17/18, 17/18 (all failures were engine deadlines under load) | Simulator, scripted review | `CB/replay-mode-2026-11-15/sim-run1..4-report.json` | 2026-11-15 |
+| Optimized build in the Simulator | 18/18 three times, Mac load average 3.3–9.3 | Simulator, scripted review | `CB/perf-integration-2026-11-15/sim-run1..3-report.json`, `uptime-run1..3.txt` | 2026-11-15 |
+| Mock safety suites | Study 28/28, Replay 21/21, Integration 18/18, ReplayTracker 94/94 | Mock | `CB/perf-integration-2026-11-15/mocks/study-run.txt`, `replay-run.txt`, `integration-run.txt`, `tracker-run.txt` | 2026-11-15 |
+| Swift tracker vs JavaScript tracker | 28/28 replies deep-equal to the golden transcript | Mac | `CB/replay-tracker-swift-2026-11-15/cross-language.stdout.txt` | 2026-11-15 |
+
+### Recognition speed fix (missing `-O`)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Cause of slow phone recognition | App compiled with no `-O`; same Mac code about 3,000 ms per frame at `-Onone` vs 41 ms at `-O`, about 27 ms after the patches | Mac | `docs/RECOGNIZER_PERFORMANCE.md`; `CB/recognizer-perf-2026-11-15/report.md` (timings reported in the doc; raw bench output not re-opened) | 2026-11-15 |
+| Speed fix changed no decisions | 78/78 frames, 4,992/4,992 squares byte-identical; replay sequence 15 frames / 960 squares | Mac | `CB/perf-integration-2026-11-15/identity/identity.jsonl` | 2026-11-15 |
+
+### Synthetic image games (Mac only, not in the app unless stated)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Bundled 14-frame replay game: Swift vs Python recogniser | 15 frames, 960 squares, 0 disagreements; manifest SHA-256 starts `0c2a46b3` | Mac, synthetic | `CB/replay-sequence-2026-11-15/native-conformance.json` | 2026-11-15 |
+| Special-move game (25 plies: en passant, promotion, both castlings) | All 26 positions tracked to the exact expected FEN; 28 frames, 1,792 squares, 0 Swift-vs-Python disagreements; manifest starts `9d1c5fc8` | Mac, synthetic, scripted review | `SPECIAL_GAME_DIR=… node --test tests/special-game-sequence.test.js`; `CB/special-game-2026-11-15/native-conformance.json` | 2026-11-15 |
+
+### Recognition prototypes (separate, not joined, not in the app)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Screen-board corner finder, dev | 210 scenes, 99.5% found, 0 false accepts, mean corner error 0.13 px, mean 113.7 ms per frame | Mac, synthetic | `CB/screen-board-2026-11-15/reports/dev-final.json` | 2026-11-15 |
+| Screen-board corner finder, held-out (run once after freezing) | 150 scenes, 99.3% found, 0 false accepts, mean corner error 0.12 px, mean 97.5 ms | Mac, synthetic | `CB/screen-board-2026-11-15/reports/heldout-final.json` | 2026-11-15 |
+| Screen-board finder rejects non-boards | 48 negatives (no board, 6x6, 9x9, 10x10), 0 accepted | Mac, synthetic | same two reports (`negatives`) | 2026-11-15 |
+| Occupancy classifier (empty / white / black) | Dev 3,328/3,328 squares; held-out 832/832; challenge 328 correct, 312 abstained, 0 confident errors | Mac, synthetic | `python3 -B tests/occupancy_classifier.py`; `CB/occupancy-classifier-2026-11-15/evaluation-all.txt` | 2026-11-15 |
+| Classifier failure found and fixed after freezing | Frozen v1 made 452 confident errors (23.5%) at blur radius 5; v2 adds a sharpness gate and abstains | Mac, synthetic | `docs/OCCUPANCY_CLASSIFIER.md`; reported in that doc, `CB/occupancy-classifier-2026-11-15/sweep.json` not re-opened | 2026-11-15 |
+| Move inference from perfect occupancy | 159,235 random plies: 99.36% unique and correct, 1,013 ambiguous (all promotion piece choice), 0 wrong; two runs byte-identical (SHA-256 starts `81d1300e`) | Mac, logic only, no images | `node scripts/simulation/occupancy-ambiguity-report.mjs`; `CB/occupancy-2026-11-15/run1.json`, `run2.json` | 2026-11-15 |
+| Move inference with one misread square | 159,235 trials, all `no-legal-explanation`, 0 wrong moves; two misreads not measured | Mac, logic only | `CB/occupancy-2026-11-15/run1.json` (`singleSquareMisread`) | 2026-11-15 |
+
+### Not verified, or in progress with no results yet
+
+- **No human has used the app by hand.** All phone review is the scripted self-test fixture.
+- No camera, glasses, microphone, Bluetooth or audible-speech result of any kind.
+- No physical-board or camera recognition accuracy; all recognition numbers above are synthetic.
+- The screen-board finder is iOS typecheck only; never run on a phone.
+- `renew_profile.sh` has never been used for real; the engine-host-died (`onClose`) path has only
+  mock evidence.
+- **In progress, no results yet (claim nothing):** joining the three recognition prototypes into
+  one pipeline; two-misread measurement; bundling the special-move game into Replay; engine
+  budget study; Mock Device Kit feasibility note.
+
+---
+
 # Current verification — November 12, 2026
 
+> **Superseded.** Everything from here down is the historical record, kept as written. For the
+> current state see "Current state (2026-11-15)" at the top of this file.
+
 ## Actual iPhone installation and opening — November 15, 2026
+
+> Later on November 15 the phone ran the full self-test (18/18) with measured recognition and
+> engine times; see "Current state (2026-11-15)" above.
 
 The staged kit completed. Actual iPhone17/iOS27.2 installation is confirmed by device inventory; launch was accepted after user-confirmed developer trust, and Alex confirmed the app opens and stays open. He then closed/swiped it away. Profile/app checks passed 40/40 and signed-product checks 29/29. Exact signed and original unsigned artifacts, separate failed/successful logs and limits are at `/Users/alexmunzon/chess-builds/iphone-2026-11-15/`. See `docs/PHONE_INSTALLATION.md`. Physical-phone recognition/engine UI acceptance and performance are still untested; no glasses or audible-output result is claimed.
 

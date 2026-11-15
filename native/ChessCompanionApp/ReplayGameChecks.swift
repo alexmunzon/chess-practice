@@ -38,6 +38,9 @@ private struct MockFrame {
     frameCounter += 1
     return MockFrame(bytes: Data("mock-replay-frame-\(frameCounter)-\(fen)".utf8), fen: fen, parent: parent, move: move, unknown: unknown)
 }
+@MainActor private func specialGameFrames() -> [MockFrame] {
+    [frame(specialFENs[0])] + (1...25).map { frame(specialFENs[$0], parent: specialFENs[$0 - 1], move: specialMoves[$0 - 1]) }
+}
 @MainActor private func gameFrames() -> [MockFrame] {
     [frame(startFEN), frame(startFEN),
      frame(e4FEN, parent: startFEN, move: ["from": "e2", "to": "e4", "san": "e4"]),
@@ -46,6 +49,52 @@ private struct MockFrame {
      frame(e5FEN, parent: e4FEN, move: ["from": "e7", "to": "e5", "san": "e5"]),
      frame(nf3FEN, parent: e5FEN, move: ["from": "g1", "to": "f3", "san": "Nf3"])]
 }
+
+// MARK: - Special-move game (same 25 plies as scripts/simulation/generate-special-game.mjs)
+
+/// Expected tracker FENs after each ply (chess.js forceEnpassantSquare convention, as the tracker).
+/// Cross-checked against the generator manifest and chess.js by tests/special-replay-pins.test.js.
+private let specialFENs = [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+    "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2",
+    "rnbqkb1r/ppp1pppp/5n2/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
+    "rnbqkb1r/ppp1pppp/3P1n2/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3",
+    "rn1qkb1r/ppp1pppp/3P1n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQkq - 1 4",
+    "rn1qkb1r/ppP1pppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 4",
+    "r2qkb1r/ppPnpppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQkq - 1 5",
+    "r2Qkb1r/pp1npppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 5",
+    "3rkb1r/pp1npppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQk - 0 6",
+    "3rkb1r/pp1npppp/5n2/5b2/3P4/8/PPP2PPP/RNBQKBNR b KQk - 0 6",
+    "3rkb1r/pp1n1ppp/4pn2/5b2/3P4/8/PPP2PPP/RNBQKBNR w KQk - 0 7",
+    "3rkb1r/pp1n1ppp/4pn2/5b2/3P4/2N5/PPP2PPP/R1BQKBNR b KQk - 1 7",
+    "3rk2r/pp1nbppp/4pn2/5b2/3P4/2N5/PPP2PPP/R1BQKBNR w KQk - 2 8",
+    "3rk2r/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPP2PPP/R2QKBNR b KQk - 3 8",
+    "3r1rk1/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPP2PPP/R2QKBNR w KQ - 4 9",
+    "3r1rk1/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPPQ1PPP/R3KBNR b KQ - 5 9",
+    "3r1rk1/pp2bppp/1n2pn2/5b2/3P4/2N1B3/PPPQ1PPP/R3KBNR w KQ - 6 10",
+    "3r1rk1/pp2bppp/1n2pn2/5b2/3P4/2N1B3/PPPQ1PPP/2KR1BNR b - - 7 10",
+    "3r1rk1/pp2bppp/4pn2/3n1b2/3P4/2N1B3/PPPQ1PPP/2KR1BNR w - - 8 11",
+    "3r1rk1/pp2bppp/4pn2/3N1b2/3P4/4B3/PPPQ1PPP/2KR1BNR b - - 0 11",
+    "3r1rk1/pp2bppp/4p3/3n1b2/3P4/4B3/PPPQ1PPP/2KR1BNR w - - 0 12",
+    "3r1rk1/pp2bppp/4p3/3n1b2/3P4/3BB3/PPPQ1PPP/2KR2NR b - - 1 12",
+    "3r1rk1/pp2bppp/4p3/3n4/3P4/3bB3/PPPQ1PPP/2KR2NR w - - 0 13",
+    "3r1rk1/pp2bppp/4p3/3n4/3P4/3QB3/PPP2PPP/2KR2NR b - - 0 13",
+]
+private let specialMoves: [[String: String]] = [
+    ["from": "e2", "to": "e4", "san": "e4"], ["from": "g8", "to": "f6", "san": "Nf6"], ["from": "e4", "to": "e5", "san": "e5"],
+    ["from": "d7", "to": "d5", "san": "d5"], ["from": "e5", "to": "d6", "san": "exd6"], ["from": "c8", "to": "f5", "san": "Bf5"],
+    ["from": "d6", "to": "c7", "san": "dxc7"], ["from": "b8", "to": "d7", "san": "Nbd7"],
+    ["from": "c7", "to": "d8", "san": "cxd8=Q+", "promotion": "q"], ["from": "a8", "to": "d8", "san": "Rxd8"],
+    ["from": "d2", "to": "d4", "san": "d4"], ["from": "e7", "to": "e6", "san": "e6"], ["from": "b1", "to": "c3", "san": "Nc3"],
+    ["from": "f8", "to": "e7", "san": "Be7"], ["from": "c1", "to": "e3", "san": "Be3"], ["from": "e8", "to": "g8", "san": "O-O"],
+    ["from": "d1", "to": "d2", "san": "Qd2"], ["from": "d7", "to": "b6", "san": "Nb6"], ["from": "e1", "to": "c1", "san": "O-O-O"],
+    ["from": "b6", "to": "d5", "san": "Nbd5"], ["from": "c3", "to": "d5", "san": "Nxd5"], ["from": "f6", "to": "d5", "san": "Nxd5"],
+    ["from": "f1", "to": "d3", "san": "Bd3"], ["from": "f5", "to": "d3", "san": "Bxd3"], ["from": "d2", "to": "d3", "san": "Qxd3"],
+]
+/// Position after 11...Nxd5 with the h2 pawn missing: no legal move explains it.
+private let missingPieceFEN = "3r1rk1/pp2bppp/4p3/3n1b2/3P4/4B3/PPPQ1PP1/2KR1BNR w - - 0 12"
 
 // MARK: - Shared in-flight ledger (asserts tracker and engine are never in flight together)
 
@@ -207,22 +256,43 @@ private actor MockPixels: OfflineImageRecognizer {
     let engine: MockEngine
     let pixels = MockPixels()
     let frames: [MockFrame], interruption: MockFrame
+    /// Special-move game frames and its two interruptions (occlusion, missing piece); empty unless `special`.
+    let specialFrames: [MockFrame], specialInterruptions: [MockFrame]
     let model: ReplayGameModel
-    init(frames: [MockFrame] = gameFrames(), extraBytes: [String: Data] = [:]) {
+    init(frames: [MockFrame] = gameFrames(), extraBytes: [String: Data] = [:], special: Bool = false) {
         self.frames = frames
         interruption = frame(startFEN, unknown: true)
+        specialFrames = special ? specialGameFrames() : []
+        specialInterruptions = special ? [frame(specialFENs[20], unknown: true), frame(missingPieceFEN)] : []
         transport = MockTrackerTransport(ledger: ledger)
         engine = MockEngine(ledger: ledger, transport: transport)
-        for f in frames { transport.table[f.sha] = f }
+        for f in frames + specialFrames { transport.table[f.sha] = f } // the missing-piece frame has no legal parent
         var bytes: [String: Data] = [:]
-        for f in frames + [interruption] { bytes[f.asset.asset] = f.bytes }
+        for f in frames + [interruption] + specialFrames + specialInterruptions { bytes[f.asset.asset] = f.bytes }
         for (k, v) in extraBytes { bytes[k] = v }
         let engine = engine, pixels = pixels
-        model = ReplayGameModel(makeBackend: { engine }, recognizer: pixels,
-                                loadFrame: { asset in guard let data = bytes[asset.asset] else { throw OfflineStudyError.missingResource }; return data },
-                                frames: frames.map(\.asset), interruption: interruption.asset)
+        let load: @MainActor (ReplayFrameAsset) throws -> Data = { asset in
+            guard let data = bytes[asset.asset] else { throw OfflineStudyError.missingResource }; return data
+        }
+        if special {
+            let opening = ReplaySequence(id: "opening", title: "Opening", frames: frames.map(\.asset), interruptions: [
+                ReplayInterruption(asset: interruption.asset, title: "Inserted obstructed frame (interruption)", buttonTitle: "Show obstructed frame next")])
+            let game = ReplaySequence(id: "special", title: "Special moves", frames: specialFrames.map(\.asset), interruptions: [
+                ReplayInterruption(asset: specialInterruptions[0].asset, title: "Inserted obstructed frame (interruption)", buttonTitle: "Show obstructed frame next"),
+                ReplayInterruption(asset: specialInterruptions[1].asset, title: "Inserted frame with a piece missing (interruption)",
+                                   buttonTitle: "Show frame with a missing piece next")])
+            model = ReplayGameModel(makeBackend: { engine }, recognizer: pixels, loadFrame: load, sequences: [opening, game])
+        } else {
+            model = ReplayGameModel(makeBackend: { engine }, recognizer: pixels, loadFrame: load,
+                                    frames: frames.map(\.asset), interruption: interruption.asset)
+        }
     }
-    func setup() async { await pixels.set(frames + [interruption]) }
+    func setup() async { await pixels.set(frames + [interruption] + specialFrames + specialInterruptions) }
+    /// Special game selected, engine started, frames 0...`frame` read without any review.
+    func specialAt(_ frame: Int) async throws {
+        model.selectSequence("special"); try await started()
+        for _ in 0..<frame { model.step(); try await idle(model) }
+    }
     func started() async throws { await setup(); model.start(); try await idle(model); model.step(); try await idle(model) }
     func review(_ fen: String) async throws {
         model.editFEN(fen)
@@ -525,6 +595,141 @@ private func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
                 try await frozen(rig.model, "Late recognition after reset") { await rig.pixels.resume() }
                 try check(rig.model.board == nil && rig.model.frameIndex == nil, "Late recognition after reset shows nothing")
                 pass("late-recognition-after-reset-dropped", rig)
+            }
+
+            // 19. Special-move game: every one of the 25 plies tracks to the expected FEN (castling rights,
+            //     en-passant square, counters) and SAN; a recommendation only at reviewed-and-tracked positions.
+            do {
+                let rig = Rig(special: true)
+                try check(rig.model.sequences.map(\.id) == ["opening", "special"] && rig.model.selectedSequence.id == "opening",
+                          "Two sequences offered, the opening first")
+                try await rig.specialAt(0)
+                try check(rig.model.selectedSequence.id == "special" && rig.model.frames.count == 26 &&
+                          rig.model.selectedSequence.interruptions.count == 2 && rig.model.frameLabel == "Frame 1 of 26", "Special game selected")
+                try await rig.review(specialFENs[0]); try await rig.analyzed()
+                try check(rig.model.trackedFEN == specialFENs[0] && rig.model.result?.identity.fen == specialFENs[0], "Start reviewed and analyzed")
+                for ply in 1...25 {
+                    let sent = rig.transport.kinds.count
+                    rig.model.step()
+                    try check(rig.model.recommendation == nil && rig.model.result == nil && !rig.model.canAnalyze,
+                              "Ply \(ply): stepping revokes the previous recommendation at once")
+                    try await idle(rig.model)
+                    try check(rig.model.phase == .tracking && rig.model.frameIndex == ply && rig.model.trackedFEN == specialFENs[ply] &&
+                              rig.model.lastMoveSAN == specialMoves[ply - 1]["san"] && rig.model.reviewEpoch == 1 && rig.model.checks.count == 5 &&
+                              rig.transport.kinds.count == sent + 2, "Ply \(ply) (\(specialMoves[ply - 1]["san"]!)) tracks to the expected FEN and SAN")
+                    try await rig.analyzed()
+                    try check(rig.model.recommendation != nil && rig.model.result?.identity.fen == specialFENs[ply] &&
+                              rig.engine.request?.fen == specialFENs[ply] && rig.model.result?.identity.reviewEpoch == 1,
+                              "Ply \(ply): recommendation bound to the tracked position")
+                }
+                try check(!rig.model.hasNextFrame && rig.engine.analyses == 26 && rig.transport.kinds.filter { $0 == "initialize" }.count == 1,
+                          "One review, 26 analyzed tracked positions")
+                try noAudio(rig.model)
+                pass("special-every-ply-tracked-fen-and-san", rig)
+            }
+
+            // 20. Special game: occlusion revokes; later frames blocked until renewed review.
+            // 21. Missing piece (no legal move explains it) revokes; blocked until renewed review.
+            do {
+                let rig = Rig(special: true); try await rig.specialAt(20)
+                try check(rig.model.frameIndex == 20 && rig.model.phase == .needsReview && rig.transport.kinds.isEmpty &&
+                          rig.engine.analyses == 0 && rig.engine.validations == 0, "Frames read before a review never reach tracker or engine")
+                try await rig.review(specialFENs[20])
+                try check(rig.model.phase == .tracking && rig.model.reviewEpoch == 1 && rig.model.trackedFEN == specialFENs[20], "Mid-game review starts tracking")
+                try await rig.analyzed()
+                rig.model.queueInterruption(0); rig.model.step(); try await idle(rig.model)
+                try check(rig.model.shownInterruption == 0 && rig.model.frameLabel.contains("obstructed") && rig.model.phase == .needsReview &&
+                          rig.model.recommendation == nil && !rig.model.canAnalyze && !rig.model.canConfirmReview && rig.model.trackedFEN == nil &&
+                          rig.model.checks.isEmpty && rig.model.status.contains("Unknown"), "Occlusion revokes and cannot be reviewed")
+                var sent = rig.transport.kinds.count, analyses = rig.engine.analyses
+                rig.model.step(); try await idle(rig.model)
+                rig.model.analyze(); try await idle(rig.model)
+                try check(rig.model.frameIndex == 21 && !rig.model.showingInterruption && rig.model.phase == .needsReview &&
+                          rig.transport.kinds.count == sent && rig.engine.analyses == analyses && rig.model.recommendation == nil,
+                          "After occlusion the next good frame stays blocked without review")
+                try await rig.review(specialFENs[21])
+                try check(rig.model.phase == .tracking && rig.model.reviewEpoch == 2 && rig.model.trackedFEN == specialFENs[21], "Renewed review (epoch 2)")
+                pass("special-occlusion-revokes-until-renewed-review", rig)
+
+                rig.model.step(); try await idle(rig.model)
+                try check(rig.model.trackedFEN == specialFENs[22] && rig.model.lastMoveSAN == "Nxd5", "11...Nxd5 tracked")
+                try await rig.analyzed()
+                try check(rig.model.recommendation != nil, "Recommendation before the missing-piece frame")
+                rig.model.queueInterruption(1); rig.model.step(); try await idle(rig.model)
+                try check(rig.model.shownInterruption == 1 && rig.model.frameLabel.contains("missing") && rig.model.board?.complete == true &&
+                          rig.model.phase == .needsReview && rig.model.recommendation == nil && !rig.model.canAnalyze && !rig.model.canConfirmReview &&
+                          rig.model.trackedFEN == nil && rig.model.checks.isEmpty && rig.model.fen.isEmpty &&
+                          rig.model.status.contains("other than one legal move"), "Missing piece revokes and clears the review")
+                sent = rig.transport.kinds.count; analyses = rig.engine.analyses
+                rig.model.step(); try await idle(rig.model)
+                rig.model.analyze(); try await idle(rig.model)
+                try check(rig.model.frameIndex == 23 && rig.model.phase == .needsReview && rig.transport.kinds.count == sent &&
+                          rig.engine.analyses == analyses && rig.model.recommendation == nil, "After the missing piece the next frame stays blocked")
+                try await rig.review(specialFENs[23])
+                for ply in 24...25 {
+                    rig.model.step(); try await idle(rig.model)
+                    try check(rig.model.phase == .tracking && rig.model.trackedFEN == specialFENs[ply] && rig.model.lastMoveSAN == specialMoves[ply - 1]["san"] &&
+                              rig.model.reviewEpoch == 3, "Ply \(ply) tracked after the renewed review (epoch 3)")
+                }
+                try await rig.analyzed()
+                try check(rig.model.result?.identity.fen == specialFENs[25] && rig.model.result?.identity.reviewEpoch == 3, "Final position analyzed")
+                pass("special-missing-piece-revokes-until-renewed-review", rig)
+            }
+
+            // 22. A late engine reply after the occlusion revoke never restores advice.
+            do {
+                let rig = Rig(special: true); try await rig.specialAt(20); try await rig.review(specialFENs[20])
+                rig.engine.holdAnalysis = true; rig.engine.cancelFailsHeld = false
+                rig.model.analyze(); try await until("held analysis") { rig.engine.analyzing != nil }
+                let kindsBefore = rig.transport.kinds.count
+                rig.model.queueInterruption(0); rig.model.step()
+                try check(rig.model.recommendation == nil && rig.model.result == nil && rig.engine.cancels >= 1, "Occlusion step revokes and cancels")
+                await settle()
+                try check(rig.transport.kinds.count == kindsBefore, "No tracker request while the engine is still in flight")
+                rig.engine.analyzing?.resume(returning: rig.engine.reply()); rig.engine.analyzing = nil
+                try await idle(rig.model); await settle()
+                try check(rig.model.recommendation == nil && rig.model.result == nil && rig.engine.legalTexts == 0 && rig.model.showingInterruption &&
+                          rig.model.phase == .needsReview && !rig.model.canAnalyze && rig.transport.kinds.count == kindsBefore + 1,
+                          "Late reply after the occlusion revoke shows nothing; the tracker revoked on the first observation")
+                pass("special-late-engine-reply-after-revoke-dropped", rig)
+            }
+
+            // 23. Switching game mid-game revokes at once; late engine or tracker replies change nothing;
+            //     the opening game still tracks afterwards.
+            do {
+                let rig = Rig(special: true); try await rig.specialAt(0); try await rig.review(specialFENs[0])
+                for _ in 1...5 { rig.model.step(); try await idle(rig.model) }
+                try await rig.analyzed()
+                try check(rig.model.trackedFEN == specialFENs[5] && rig.model.recommendation != nil, "En passant position tracked and analyzed")
+                rig.model.selectSequence("opening")
+                try check(rig.model.recommendation == nil && rig.model.result == nil && rig.model.phase == .engineStopped && !rig.model.ready &&
+                          rig.model.selectedSequence.id == "opening" && rig.model.frameIndex == nil && rig.model.board == nil &&
+                          rig.model.fen.isEmpty && rig.model.checks.isEmpty && rig.model.trackedFEN == nil && rig.engine.closes == 1 &&
+                          rig.model.status.contains("Switched"), "Switching game revokes everything and stops the engine")
+                rig.model.selectSequence("opening")
+                try check(rig.model.status.contains("Switched") && rig.engine.closes == 1, "Choosing the shown game again changes nothing")
+                rig.model.start(); try await idle(rig.model)
+                rig.model.step(); try await idle(rig.model); try await rig.review(startFEN)
+                rig.model.step(); try await idle(rig.model); rig.model.step(); try await idle(rig.model)
+                try check(rig.model.phase == .tracking && rig.model.trackedFEN == e4FEN && rig.model.frameLabel == "Frame 3 of 7",
+                          "Opening game tracks after the switch")
+
+                let held = Rig(special: true); try await held.specialAt(0); try await held.review(specialFENs[0])
+                held.engine.holdAnalysis = true; held.engine.cancelFailsHeld = false
+                held.model.analyze(); try await until("held analysis") { held.engine.analyzing != nil }
+                held.model.selectSequence("opening")
+                try await frozen(held.model, "Late analysis after switching game") {
+                    held.engine.analyzing?.resume(returning: held.engine.reply()); held.engine.analyzing = nil
+                }
+                try check(held.engine.legalTexts == 0, "Late analysis after switching game must not request legal text")
+
+                let heldTracker = Rig(special: true); try await heldTracker.specialAt(0); try await heldTracker.review(specialFENs[0])
+                heldTracker.transport.hold = true
+                heldTracker.model.step(); try await until("held tracker") { heldTracker.transport.held != nil }
+                heldTracker.model.selectSequence("opening")
+                try await frozen(heldTracker.model, "Late tracker reply after switching game") { heldTracker.transport.release() }
+                try check(heldTracker.model.trackedFEN == nil && heldTracker.model.selectedSequence.id == "opening", "Late tracker reply cannot restore tracking")
+                pass("special-switch-sequence-mid-game-revokes", rig); overlaps += held.ledger.overlaps + heldTracker.ledger.overlaps
             }
 
             try check(overlaps == 0, "Tracker and engine requests overlapped \(overlaps) times")

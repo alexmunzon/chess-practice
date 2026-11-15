@@ -135,6 +135,21 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
     }
 }
 
+/// Pass-through around the real recognizer: forwards bytes and results unchanged and records how
+/// long each recognition took (milliseconds), so the report can show recognition time per frame.
+actor SelfTestRecognizerProbe: OfflineImageRecognizer {
+    private let inner: any OfflineImageRecognizer
+    private var durations: [Double] = []
+    init(inner: any OfflineImageRecognizer) { self.inner = inner }
+    func recognize(_ bytes: Data) async throws -> OfflineBoard {
+        let start = ContinuousClock.now
+        defer { durations.append(elapsedMilliseconds(start)) }
+        return try await inner.recognize(bytes)
+    }
+    /// Returns and clears the durations recorded since the last call.
+    func take() -> [Double] { let out = durations; durations = []; return out }
+}
+
 /// Text-only stand-in for OfflineNativeSpeech: never touches AVFoundation.
 @MainActor final class SelfTestSilentSpeech: OfflineSpeech {
     static let shared = SelfTestSilentSpeech()
@@ -164,17 +179,57 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
     static var currentProbe: SelfTestProbeBackend?
     /// Replay model wired exactly like the normal app (real recognizer, real backend and real bundled
     /// tracker in WebKit), wrapped only by the recording probe. It has no speech dependency at all.
-    static func makeReplayModel(resources: StudyResources) -> ReplayGameModel {
-        ReplayGameModel(
+    static func makeReplayModel(resources: StudyResources, sequences: [ReplaySequence]) -> ReplayGameModel {
+        let recognizer = SelfTestRecognizerProbe(inner: OfflinePixelRecognizer(resources: resources))
+        currentRecognizerProbe = recognizer
+        return ReplayGameModel(
             makeBackend: {
                 let probe = SelfTestReplayProbe(inner: try LocalOfflineBackend(resources: resources), log: .shared)
                 SelfTestRunner.currentReplayProbe = probe
                 return probe
             },
-            recognizer: OfflinePixelRecognizer(resources: resources),
-            loadFrame: { try resources.checked($0.asset) })
+            recognizer: recognizer,
+            loadFrame: { try resources.checked($0.asset) }, sequences: sequences)
     }
     static var currentReplayProbe: SelfTestReplayProbe?
+    static var currentRecognizerProbe: SelfTestRecognizerProbe?
+    static let specialTimeoutSeconds = 360
+    /// Special-move game (1.e4 Nf6 2.e5 d5 3.exd6 e.p. Bf5 4.dxc7 Nbd7 5.cxd8=Q+ Rxd8 6.d4 e6 7.Nc3 Be7
+    /// 8.Be3 O-O 9.Qd2 Nb6 10.O-O-O Nbd5 11.Nxd5 Nxd5 12.Bd3 Bxd3 13.Qxd3). Scripted reviewer input for
+    /// the review points (frames 0, 20, 21, 23) and the expected tracker FEN after each ply, used here
+    /// only to compare. The app never reads these; it bundles no expected positions.
+    static let specialFENs = [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "rnbqkb1r/pppppppp/5n2/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2",
+        "rnbqkb1r/pppppppp/5n2/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2",
+        "rnbqkb1r/ppp1pppp/5n2/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
+        "rnbqkb1r/ppp1pppp/3P1n2/8/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 3",
+        "rn1qkb1r/ppp1pppp/3P1n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQkq - 1 4",
+        "rn1qkb1r/ppP1pppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 4",
+        "r2qkb1r/ppPnpppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQkq - 1 5",
+        "r2Qkb1r/pp1npppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 5",
+        "3rkb1r/pp1npppp/5n2/5b2/8/8/PPPP1PPP/RNBQKBNR w KQk - 0 6",
+        "3rkb1r/pp1npppp/5n2/5b2/3P4/8/PPP2PPP/RNBQKBNR b KQk - 0 6",
+        "3rkb1r/pp1n1ppp/4pn2/5b2/3P4/8/PPP2PPP/RNBQKBNR w KQk - 0 7",
+        "3rkb1r/pp1n1ppp/4pn2/5b2/3P4/2N5/PPP2PPP/R1BQKBNR b KQk - 1 7",
+        "3rk2r/pp1nbppp/4pn2/5b2/3P4/2N5/PPP2PPP/R1BQKBNR w KQk - 2 8",
+        "3rk2r/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPP2PPP/R2QKBNR b KQk - 3 8",
+        "3r1rk1/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPP2PPP/R2QKBNR w KQ - 4 9",
+        "3r1rk1/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPPQ1PPP/R3KBNR b KQ - 5 9",
+        "3r1rk1/pp2bppp/1n2pn2/5b2/3P4/2N1B3/PPPQ1PPP/R3KBNR w KQ - 6 10",
+        "3r1rk1/pp2bppp/1n2pn2/5b2/3P4/2N1B3/PPPQ1PPP/2KR1BNR b - - 7 10",
+        "3r1rk1/pp2bppp/4pn2/3n1b2/3P4/2N1B3/PPPQ1PPP/2KR1BNR w - - 8 11",
+        "3r1rk1/pp2bppp/4pn2/3N1b2/3P4/4B3/PPPQ1PPP/2KR1BNR b - - 0 11",
+        "3r1rk1/pp2bppp/4p3/3n1b2/3P4/4B3/PPPQ1PPP/2KR1BNR w - - 0 12",
+        "3r1rk1/pp2bppp/4p3/3n1b2/3P4/3BB3/PPPQ1PPP/2KR2NR b - - 1 12",
+        "3r1rk1/pp2bppp/4p3/3n4/3P4/3bB3/PPPQ1PPP/2KR2NR w - - 0 13",
+        "3r1rk1/pp2bppp/4p3/3n4/3P4/3QB3/PPP2PPP/2KR2NR b - - 0 13",
+    ]
+    static let specialSAN = ["e4", "Nf6", "e5", "d5", "exd6", "Bf5", "dxc7", "Nbd7", "cxd8=Q+", "Rxd8", "d4", "e6", "Nc3",
+                             "Be7", "Be3", "O-O", "Qd2", "Nb6", "O-O-O", "Nbd5", "Nxd5", "Nxd5", "Bd3", "Bxd3", "Qxd3"]
+    /// Plies analyzed in the full special game: after en passant, promotion, recapture, both castlings, final.
+    static let specialAnalyzedPlies: Set<Int> = [0, 5, 9, 10, 16, 19, 25]
     static let replayTimeoutSeconds = 240
     /// Scripted reviewer input (typed FENs for 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6), written here as a
     /// reviewer would type them. The app never reads these; it bundles no expected positions.
@@ -237,6 +292,19 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
             }
             await replayWork.value
             replayWatchdog.cancel()
+        }
+        // Special-move replay game checks, after the first game, under their own watchdog.
+        if !finished && !Task.isCancelled {
+            let specialWork = Task { @MainActor in await self.runSpecialReplay(replay, modeState: modeState) }
+            let specialWatchdog = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.specialTimeoutSeconds))
+                guard !Task.isCancelled, !self.finished else { return }
+                specialWork.cancel()
+                self.log.record("selftest.special.timeout")
+                self.finish(incomplete: true, reason: "special replay timeout of \(Self.specialTimeoutSeconds) s reached")
+            }
+            await specialWork.value
+            specialWatchdog.cancel()
         }
         if !finished { finish(incomplete: Task.isCancelled, reason: nil) }
     }
@@ -490,9 +558,12 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
     private func replayStep(_ r: ReplayGameModel) async -> [String: Any] {
         let first = log.events.count, t = ContinuousClock.now
         r.step()
+        let clearedAtTap = r.recommendation == nil && r.move == nil && !r.canAnalyze
         let ms = await waitReplayIdle(r, from: t) ?? -1
         let tracker = trackerEvents(since: first)
-        return ["frame": r.frameLabel, "frameIndex": r.frameIndex ?? NSNull(), "interruption": r.showingInterruption,
+        let recognition = await Self.currentRecognizerProbe?.take() ?? []
+        return ["frame": r.frameLabel, "recommendationClearedAtTap": clearedAtTap, "recognitionMs": recognition,
+                "trackerLastReason": tracker.last { $0["event"] as? String == "replay.tracker.end" }?["reason"] ?? NSNull(), "frameIndex": r.frameIndex ?? NSNull(), "interruption": r.showingInterruption,
                 "phase": "\(r.phase)", "trackedFEN": r.trackedFEN ?? NSNull(), "lastMoveSAN": r.lastMoveSAN ?? NSNull(),
                 "trackerRevision": r.trackedRevision ?? NSNull(), "status": r.status, "stepMs": ms,
                 "unknownSquares": r.board?.squares.values.filter { $0 == "unknown" }.count ?? NSNull(),
@@ -684,6 +755,238 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
         }
     }
 
+    // MARK: - Special-move replay game (real recognition, real bundled tracker, real engine)
+
+    private var specialTimings: [String: Any] = [:]
+    private func number(_ value: Any?) -> Double? { (value as? NSNumber)?.doubleValue }
+    private func counts(_ p: SelfTestReplayProbe) -> [Int] { [p.analyzeCalls, p.trackerRequests, p.validateCalls, p.legalTextCalls] }
+
+    private func runSpecialReplay(_ r: ReplayGameModel, modeState: AppModeState) async {
+        log.record("selftest.special.begin")
+        let fens = Self.specialFENs, sans = Self.specialSAN
+        guard r.sequences.contains(where: { $0.id == "special" }) else {
+            record("special-replay-game-bundled", pass: false, details: ["sequences": r.sequences.map(\.id)]); return
+        }
+        modeState.mode = .replay // the app's onChange re-activates the replay model
+        await pause(300)
+        r.setActive(true)
+        r.selectSequence("special")                       // "Game" picker
+        let specialStart = log.events.count
+        _ = await Self.currentRecognizerProbe?.take()
+        var engineStarts: [Double] = []
+        func startEngine() async -> Bool {
+            let t = ContinuousClock.now
+            r.start()                                      // "Start local engine"
+            engineStarts.append(await waitReplayIdle(r, from: t) ?? -1)
+            return r.ready
+        }
+        guard r.selectedSequence.id == "special", r.frames.count == 26, await startEngine(), let firstProbe = Self.currentReplayProbe else {
+            record("special-replay-engine-start", pass: false, details: ["status": r.status, "sequence": r.selectedSequence.id]); return
+        }
+        var probes = [firstProbe]
+        var allSteps: [[String: Any]] = [], recommendations: [[String: Any]] = []
+
+        // S1. One scripted review of frame 0, then every one of the 25 plies through the real tracker.
+        var steps: [[String: Any]] = [], failures: [String] = []
+        let firstFrame = await replayStep(r)
+        allSteps.append(firstFrame)
+        let review0 = await replayReview(r, fen: fens[0])
+        var clean = r.phase == .tracking && r.trackedFEN == fens[0]
+        if !clean { failures.append("review of frame 0 did not start tracking") }
+        if clean { recommendations.append(await replayAnalyze(r, ply: 0)) }
+        if clean {
+            for ply in 1...25 {
+                if Task.isCancelled { return }
+                var s = await replayStep(r)
+                let ok = s["phase"] as? String == "tracking" && s["trackedFEN"] as? String == fens[ply] && s["lastMoveSAN"] as? String == sans[ply - 1]
+                    && s["trackerRequests"] as? Int == 2 && s["frameIndex"] as? Int == ply && s["recommendationClearedAtTap"] as? Bool == true
+                s["expectedFEN"] = fens[ply]; s["expectedSAN"] = sans[ply - 1]; s["ply"] = ply; s["pass"] = ok
+                steps.append(s); allSteps.append(s)
+                if !ok { clean = false; failures.append("ply \(ply) (\(sans[ply - 1])) did not track as expected"); break }
+                if Self.specialAnalyzedPlies.contains(ply) { recommendations.append(await replayAnalyze(r, ply: ply)) }
+            }
+        }
+        record("special-full-game-every-ply-tracked",
+               pass: clean && steps.count == 25 && r.frameIndex == 25 && !r.hasNextFrame && r.reviewEpoch > 0,
+               details: ["review": review0, "steps": steps, "failures": failures, "finalTrackedFEN": r.trackedFEN ?? NSNull(),
+                         "note": "every ply checked against the expected FEN (castling rights, en-passant square, counters) and SAN"],
+               label: scriptedLabel)
+        if Task.isCancelled { return }
+
+        // S2. Switching game mid-game revokes at once and stops the engine; nothing comes back later.
+        do {
+            var d: [String: Any] = [:]
+            if r.recommendation == nil && r.canAnalyze { recommendations.append(await replayAnalyze(r, ply: 25)) }
+            let had = r.recommendation != nil
+            d["recommendationBefore"] = r.recommendation ?? NSNull(); d["trackedFENBefore"] = r.trackedFEN ?? NSNull()
+            r.selectSequence("opening")                    // "Game" picker
+            let immediately = r.recommendation == nil && r.trackedFEN == nil && r.phase == .engineStopped && !r.ready
+            await pause(1500)
+            d["recommendationAfter1500ms"] = r.recommendation ?? NSNull(); d["phase"] = "\(r.phase)"; d["status"] = r.status
+            d["sequenceAfter"] = r.selectedSequence.id; d["revokedImmediately"] = immediately
+            let pass = had && immediately && r.recommendation == nil && r.phase == .engineStopped && r.board == nil && r.frameIndex == nil
+                && r.fen.isEmpty && r.checks.isEmpty && r.selectedSequence.id == "opening"
+            record("special-switch-game-mid-game-revokes", pass: pass, details: d)
+        }
+        if Task.isCancelled { return }
+
+        // Back to the special game: read frames 0...20 without any review (no tracker or engine contact).
+        r.selectSequence("special")
+        guard await startEngine(), let secondProbe = Self.currentReplayProbe else {
+            record("special-replay-engine-restart", pass: false, details: ["status": r.status]); return
+        }
+        probes.append(secondProbe)
+        let unreviewedBefore = counts(secondProbe)
+        for _ in 0...20 { if Task.isCancelled { return }; allSteps.append(await replayStep(r)) }
+        let unreviewedAfter = counts(secondProbe)
+        let review20 = await replayReview(r, fen: fens[20])
+
+        // S3. Late engine reply: analysis of frame 20 is running when the obstructed frame is stepped in.
+        var late: [String: Any] = [:], latePass = false
+        let unreviewed: [String: Any] = ["frameIndex": r.frameIndex.map { $0 as Any } ?? NSNull(),
+                                         "trackerOrEngineCallsBeforeReview": zip(unreviewedAfter, unreviewedBefore).map { $0 - $1 }]
+        var occlusion: [String: Any] = ["unreviewedFrames0to20": unreviewed, "midGameReview": review20]
+        if r.phase == .tracking && r.trackedFEN == fens[20] && r.canAnalyze {
+            let first = log.events.count, s0 = ContinuousClock.now
+            r.analyze(); log.record("selftest.special.analyze-called", ["frame": 20])
+            await pause(200)
+            let analyzingAtStep = r.analyzing
+            let replied = log.events(since: first).contains { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
+            log.record("selftest.special.occlusion-during-analysis", ["msAfterAnalyze": elapsedMilliseconds(s0)])
+            let stepMs = log.now()
+            r.queueInterruption(0)                         // "Show obstructed frame next"
+            r.step()                                       // "Next frame"
+            let clearedAtTap = r.recommendation == nil && r.move == nil
+            var everVisible = false
+            let window = ContinuousClock.now
+            while elapsedMilliseconds(window) < 3000 { if r.recommendation != nil || r.move != nil { everVisible = true }; await pause(10) }
+            _ = await waitReplayIdle(r, from: ContinuousClock.now)
+            let events = log.events(since: first)
+            let ended = events.first { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
+            let firstTracker = events.first { $0["event"] as? String == "replay.tracker.begin" }
+            let endedMs = number(ended?["tMs"]) ?? .infinity, trackerMs = number(firstTracker?["tMs"]) ?? -1
+            let legalText = events.filter { $0["event"] as? String == "replay.engine.legalText.begin" }.count
+            let trackerEnd = events.last { $0["event"] as? String == "replay.tracker.end" }
+            late = ["analyzingAtStep": analyzingAtStep, "engineReplyBeforeStep": replied, "recommendationClearedAtTap": clearedAtTap,
+                    "recommendationEverVisible": everVisible, "analysisOutcome": ended ?? NSNull(), "engineEndedAfterStepTap": endedMs > stepMs,
+                    "firstTrackerRequestAfterAnalysisEnded": trackerMs > endedMs, "legalTextRequests": legalText,
+                    "observationWindowMs": 3000, "events": events]
+            latePass = analyzingAtStep && !replied && clearedAtTap && !everVisible && trackerMs > endedMs && legalText == 0
+                && r.showingInterruption && r.phase == .needsReview && r.recommendation == nil
+            occlusion["obstructedStep"] = ["frame": r.frameLabel, "phase": "\(r.phase)", "interruption": r.showingInterruption,
+                                           "unknownSquares": r.board?.squares.values.filter { $0 == "unknown" }.count ?? NSNull(),
+                                           "trackerReason": trackerEnd?["reason"] ?? NSNull(), "trackerStatus": trackerEnd?["status"] ?? NSNull(),
+                                           "status": r.status]
+        } else { late["failure"] = "could not reach a tracked, analyzable frame 20" }
+        record("special-late-engine-reply-after-occlusion-revoke-nothing-shown", pass: latePass, details: late, label: scriptedLabel)
+        if Task.isCancelled { return }
+
+        // S4. Occlusion revoked; frame 21 stays blocked until a renewed review; tracking resumes.
+        do {
+            let o = occlusion["obstructedStep"] as? [String: Any] ?? [:]
+            let canConfirmOnObstructed = r.canConfirmReview, canAnalyzeOnObstructed = r.canAnalyze
+            let before = counts(secondProbe)
+            r.analyze(); await pause(50)
+            let next = await replayStep(r)                // frame 21 while revoked
+            allSteps.append(next)
+            r.analyze(); await pause(50)
+            let after = counts(secondProbe)
+            let epochBefore = r.reviewEpoch
+            let review = await replayReview(r, fen: fens[21])
+            let s22 = await replayStep(r); allSteps.append(s22)
+            occlusion["canConfirmOnObstructedFrame"] = canConfirmOnObstructed; occlusion["canAnalyzeOnObstructedFrame"] = canAnalyzeOnObstructed
+            occlusion["nextFrameWhileRevoked"] = next; occlusion["callsWhileRevoked"] = zip(after, before).map { $0 - $1 }
+            occlusion["renewedReview"] = review; occlusion["afterRenewedReview"] = s22
+            let pass = (unreviewedAfter == unreviewedBefore) && review20["phase"] as? String == "tracking"
+                && o["interruption"] as? Bool == true && o["phase"] as? String == "needsReview" && (o["unknownSquares"] as? Int ?? 0) > 0
+                && o["trackerReason"] as? String == "uncertain-squares" && !canConfirmOnObstructed && !canAnalyzeOnObstructed
+                && next["phase"] as? String == "needsReview" && next["frameIndex"] as? Int == 21 && after == before
+                && review["phase"] as? String == "tracking" && r.reviewEpoch > epochBefore && review["trackedFEN"] as? String == fens[21]
+                && s22["trackedFEN"] as? String == fens[22] && s22["lastMoveSAN"] as? String == sans[21] && s22["phase"] as? String == "tracking"
+            record("special-occlusion-revokes-until-renewed-review", pass: pass, details: occlusion, label: scriptedLabel)
+        }
+        if Task.isCancelled { return }
+        if r.phase == .tracking && r.canAnalyze { recommendations.append(await replayAnalyze(r, ply: 22)) }
+
+        // S5. Missing piece (h2 pawn gone): no legal move explains it; revoked until a renewed review.
+        do {
+            var d: [String: Any] = [:]
+            r.queueInterruption(1)                         // "Show frame with a missing piece next"
+            let m = await replayStep(r); allSteps.append(m)
+            let canConfirm = r.canConfirmReview, canAnalyze = r.canAnalyze, complete = r.board?.complete == true
+            let before = counts(secondProbe)
+            r.analyze(); await pause(50)
+            let next = await replayStep(r); allSteps.append(next) // frame 23 while revoked
+            r.analyze(); await pause(50)
+            let after = counts(secondProbe)
+            let epochBefore = r.reviewEpoch
+            let review = await replayReview(r, fen: fens[23])
+            var resumed: [[String: Any]] = []
+            for _ in 24...25 { let s = await replayStep(r); resumed.append(s); allSteps.append(s) }
+            if r.phase == .tracking && r.canAnalyze { recommendations.append(await replayAnalyze(r, ply: 25)) }
+            d = ["missingPieceStep": m, "boardComplete": complete, "canConfirmOnMissingPieceFrame": canConfirm, "canAnalyzeOnMissingPieceFrame": canAnalyze,
+                 "nextFrameWhileRevoked": next, "callsWhileRevoked": zip(after, before).map { $0 - $1 }, "renewedReview": review, "resumed": resumed]
+            let pass = m["interruption"] as? Bool == true && m["phase"] as? String == "needsReview" && complete
+                && m["trackerLastReason"] as? String == "not-zero-or-one-legal-move" && !canConfirm && !canAnalyze
+                && next["phase"] as? String == "needsReview" && next["frameIndex"] as? Int == 23 && after == before
+                && review["phase"] as? String == "tracking" && r.reviewEpoch > epochBefore
+                && resumed.count == 2 && resumed[0]["trackedFEN"] as? String == fens[24] && resumed[0]["lastMoveSAN"] as? String == sans[23]
+                && resumed[1]["trackedFEN"] as? String == fens[25] && resumed[1]["lastMoveSAN"] as? String == sans[24]
+                && resumed.allSatisfy { $0["phase"] as? String == "tracking" && $0["trackerRequests"] as? Int == 2 }
+            record("special-missing-piece-revokes-until-renewed-review", pass: pass, details: d, label: scriptedLabel)
+        }
+        if Task.isCancelled { return }
+
+        // S6. Text advice only at reviewed-and-tracked positions, each legal per the app's own rules reply.
+        do {
+            let plyOK: ([String: Any]) -> Bool = { rec in
+                guard let ply = rec["ply"] as? Int, fens.indices.contains(ply) else { return false }
+                return rec["fen"] as? String == fens[ply] && rec["legalPerAppRulesReply"] as? Bool == true && rec["moveUCI"] is String
+                    && rec["identityStillCurrent"] as? Bool == true
+            }
+            let analyzed = Set(recommendations.filter(plyOK).compactMap { $0["ply"] as? Int })
+            let required = Self.specialAnalyzedPlies.union([22])
+            let clearedEveryStep = allSteps.allSatisfy { $0["recommendationClearedAtTap"] as? Bool != false }
+            record("special-text-recommendations-only-at-tracked-positions",
+                   pass: required.isSubset(of: analyzed) && recommendations.allSatisfy(plyOK) && clearedEveryStep,
+                   details: ["recommendations": recommendations, "requiredPlies": required.sorted(), "pliesWithLegalText": analyzed.sorted(),
+                             "recommendationClearedAtEveryStepTap": clearedEveryStep, "speakRequests": SelfTestSilentSpeech.shared.speakRequests],
+                   label: scriptedLabel)
+        }
+
+        // S7. Tracker and engine never in flight together in the whole special section.
+        do {
+            var engineOpen = 0, trackerOpen = 0, intervalOverlaps = 0
+            for e in log.events(since: specialStart) {
+                switch e["event"] as? String ?? "" {
+                case "replay.engine.validate.begin", "replay.engine.analyze.begin", "replay.engine.legalText.begin":
+                    if trackerOpen > 0 { intervalOverlaps += 1 }; engineOpen += 1
+                case "replay.engine.validate.end", "replay.engine.validate.error", "replay.engine.analyze.reply", "replay.engine.analyze.error",
+                     "replay.engine.legalText.end", "replay.engine.legalText.error": engineOpen -= 1
+                case "replay.tracker.begin": if engineOpen > 0 { intervalOverlaps += 1 }; trackerOpen += 1
+                case "replay.tracker.end", "replay.tracker.error": trackerOpen -= 1
+                default: break
+                }
+            }
+            let probeOverlaps = probes.reduce(0) { $0 + $1.overlaps }
+            record("special-tracker-and-engine-never-concurrent", pass: probeOverlaps == 0 && intervalOverlaps == 0,
+                   details: ["probeOverlaps": probeOverlaps, "logIntervalOverlaps": intervalOverlaps,
+                             "trackerRequests": probes.reduce(0) { $0 + $1.trackerRequests }, "engineAnalyzeCalls": probes.reduce(0) { $0 + $1.analyzeCalls }])
+        }
+
+        // Timings for the report (Simulator or phone, scripted review).
+        let recognition = allSteps.flatMap { ($0["recognitionMs"] as? [Double]) ?? [] }.sorted()
+        let search = recommendations.compactMap { number($0["engineSearchMs"]) }.sorted()
+        let analysis = recommendations.compactMap { number($0["analysisTotalMs"]) }.sorted()
+        func summary(_ v: [Double]) -> [String: Any] {
+            v.isEmpty ? ["count": 0] : ["count": v.count, "min": v.first!, "median": v[v.count / 2], "max": v.last!]
+        }
+        specialTimings = ["recognitionMsPerFrame": summary(recognition), "engineSearchMs": summary(search),
+                          "analysisTotalMs": summary(analysis), "engineStartMs": engineStarts]
+        // Leave the replay mode clean.
+        r.leave()
+    }
+
     // MARK: - Report
 
     private func finish(incomplete: Bool, reason: String?) {
@@ -702,6 +1005,16 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
         let machine = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         return "\(UIDevice.current.model) (\(machine))"
     }
+    /// Clearly named section for the special-move replay game: per-check pass/fail plus timings.
+    private func specialSection() -> [String: Any] {
+        let special = checks.filter { ($0["name"] as? String ?? "").hasPrefix("special-") }
+        let passed = special.filter { $0["pass"] as? Bool == true }.count
+        return ["title": "Special-move replay game: 25 plies with en passant, captures, promotion (cxd8=Q+), both castlings; occlusion and missing-piece interruptions",
+                "review": scriptedLabel, "expectedChecks": 7, "checksRun": special.count, "checksPassed": passed,
+                "allPassed": special.count == 7 && passed == 7,
+                "checks": special.map { ["name": $0["name"] ?? NSNull(), "pass": $0["pass"] ?? NSNull()] },
+                "timings": specialTimings]
+    }
     private func writeReport(incomplete: Bool, reason: String?) {
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let info = Bundle.main.infoDictionary ?? [:]
@@ -718,7 +1031,9 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
             "incomplete": incomplete, "incompleteReason": reason ?? NSNull(),
             "checksRun": checks.count, "checksPassed": passed, "allPassed": !incomplete && passed == checks.count && !checks.isEmpty,
             "speakRequests": SelfTestSilentSpeech.shared.speakRequests,
+            "specialTimeoutSeconds": Self.specialTimeoutSeconds,
             "replay": "Replay game checks drive ReplayGameModel with real recognition, the real bundled tracker in WebKit and the real engine; review is the scripted fixture; text only, no speech dependency",
+            "specialReplayGame": specialSection(),
             "checks": checks, "eventLog": log.events,
         ]
         guard JSONSerialization.isValidJSONObject(report),
