@@ -1,0 +1,111 @@
+{
+  "modelCommit": "4690fd5418ff7c405a76d1c156077ecd865ac053",
+  "threshold": 0.95,
+  "records": [
+    {
+      "id": "development-staxringold",
+      "split": "development",
+      "group": "staxringold",
+      "image": "development-staxringold.jpg",
+      "sourceSha256": "8ee44b3d00617acfff63734ae05338368bb07ca21b463603d4b8dcc358ba7145",
+      "imageSize": [
+        2611,
+        1699
+      ],
+      "mode": "manual-independent-evaluation-corners",
+      "humanConfirmed": true,
+      "orientation": "white-bottom",
+      "corners": [
+        [
+          541,
+          320
+        ],
+        [
+          2042,
+          318
+        ],
+        [
+          2280,
+          1426
+        ],
+        [
+          311,
+          1428
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 10,
+      "placement": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+      "annotationMethod": "Visual source-image inspection confirmed all pieces match standard starting placement; development sample, not held-out."
+    },
+    {
+      "id": "heldout-1",
+      "split": "heldout",
+      "group": "wikimedia-1",
+      "image": "heldout-1.jpg",
+      "sourceSha256": "3a31ce3784987f7469f9d5e060ab9e30a14807b48b9524bcf561c2c17e7c999e",
+      "imageSize": [
+        5511,
+        3743
+      ],
+      "mode": "manual-independent-evaluation-corners",
+      "humanConfirmed": true,
+      "orientation": "black-bottom",
+      "corners": [
+        [
+          1147.29,
+          405.87
+        ],
+        [
+          4158.3,
+          420.9
+        ],
+        [
+          4488.96,
+          3031.48
+        ],
+        [
+          816.63,
+          3046.51
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 20,
+      "placement": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+      "annotationMethod": "Visual inspection of actual pixels and individually identifiable pieces; labels/corners frozen before inference. No model prediction used."
+    },
+    {
+      "id": "heldout-2",
+      "split": "heldout",
+      "group": "wikimedia-2",
+      "image": "heldout-2.jpg",
+      "sourceSha256": "957995e3619e645afc3485460d3b4706ef6b2fa1a125da7e7f511e9de978448e",
+      "imageSize": [
+        3190,
+        2196
+      ],
+      "mode": "manual-independent-evaluation-corners",
+      "humanConfirmed": true,
+      "orientation": "black-bottom",
+      "corners": [
+        [
+          632.2,
+          513.46
+        ],
+        [
+          2540.4,
+          513.46
+        ],
+        [
+          2778.2,
+          1833.38
+        ],
+        [
+          420.5,
+          1833.38
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 25,
+      "placement": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+      "annotationMethod": "Visual inspection of actual pixels and individually identifiable pieces; labels/corners frozen before inference. No model prediction used."
+    }
+  ]
+}

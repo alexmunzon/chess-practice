@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadPosition, positionPayload } from './position.js';
+import { spokenMove } from './move-speech.js';
 const enginePath = fileURLToPath(new URL('../../node_modules/stockfish/bin/stockfish-19-single.js', import.meta.url));
 export class EngineError extends Error { constructor(message, code) { super(message); this.code = code; } }
 export function analyze({fen, confirmation, movetimeMs = 1000, requestId}, {signal, startupTimeoutMs = 10000, graceMs = 1500, spawnEngine = () => spawn(process.execPath, [enginePath], {stdio:['pipe','pipe','pipe']})} = {}) {
@@ -10,7 +11,7 @@ export function analyze({fen, confirmation, movetimeMs = 1000, requestId}, {sign
   try { chess = loadPosition(fen); } catch(e) { return Promise.reject(e); }
   const position = positionPayload(chess);
   const empty = {depth:0,scoreCp:null,mate:null,pv:[],elapsedMs:0,scorePerspective:'side-to-move',bounded:true};
-  const base = {requestId,fen:position.fen,status:position.status,bestMove:null,analysis:empty};
+  const base = {requestId,fen:position.fen,status:position.status,bestMove:null,speechText:null,analysis:empty};
   if (signal?.aborted) return Promise.reject(new EngineError('Analysis cancelled.', 'ABORTED'));
   if (position.gameOver) return Promise.resolve(base);
   return new Promise((resolve,reject) => {
@@ -52,7 +53,7 @@ export function analyze({fen, confirmation, movetimeMs = 1000, requestId}, {sign
         const uci = text.split(/\s+/)[1];
         try {
           const move = chess.move({from:uci.slice(0,2),to:uci.slice(2,4),promotion:uci[4]});
-          finish(null,{...base,bestMove:{from:move.from,to:move.to,...(move.promotion?{promotion:move.promotion}:{}),uci,san:move.san},analysis:{...info,elapsedMs:Date.now()-started}});
+          finish(null,{...base,speechText:spokenMove(position.fen,{from:move.from,to:move.to,...(move.promotion?{promotion:move.promotion}:{})}),bestMove:{from:move.from,to:move.to,...(move.promotion?{promotion:move.promotion}:{}),uci,san:move.san},analysis:{...info,elapsedMs:Date.now()-started}});
         } catch { finish(new EngineError('Engine did not return a legal move.', 'INVALID_ENGINE_MOVE')); }
       }
     };

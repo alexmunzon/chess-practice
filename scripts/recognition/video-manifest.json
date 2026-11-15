@@ -1,0 +1,1667 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Frozen independent partial visual labels for real physical chess-video recognition diagnostics; not complete-FEN accuracy ground truth.",
+  "source": {
+    "title": "Top View Footage Of People Playing Chess",
+    "pageUrl": "https://www.pexels.com/video/top-view-footage-of-people-playing-chess-6599638/",
+    "author": "Tima Miroshnichenko",
+    "authorUrl": "https://www.pexels.com/@tima-miroshnichenko/",
+    "license": "Pexels License (free-use stock-media license with restrictions; not CC0)",
+    "licenseUrl": "https://www.pexels.com/license/",
+    "licenseVerifiedDate": "2026-11-10",
+    "licenseSummary": "Allows free download/use/modification; no implied endorsement, offensive portrayal, unaltered resale, stock-platform redistribution or trademark use. No media/derivatives shipped in repository.",
+    "mediaUrl": "https://videos.pexels.com/video-files/6599638/6599638-uhd_2560_1440_25fps.mp4",
+    "localMedia": "video/pexels-6599638.mp4",
+    "mediaSha256": "1336c9ae9ab1f1d996e628e4c67f578b855ff19127716c0b1d868b0749d49b33",
+    "durationSeconds": 19.92,
+    "fps": 25,
+    "frameSize": [
+      2560,
+      1440
+    ],
+    "audioPresent": false,
+    "format": "MP4/H.264",
+    "downloadDate": "2026-11-10"
+  },
+  "coordinateConvention": "Use visible printed coordinates, not inferred legal setup: files a-h top-to-bottom, ranks 1-8 left-to-right. a1 is screen top-left, h8 bottom-right. Dark pieces occupy rank 1. Do not silently invert colors or assume normal starting positions. canonicalCornersA8H8H1A1 is screen TR,BR,BL,TL.",
+  "labelLegend": {
+    ".": "visible empty",
+    "PNBRQK": "known light/white type",
+    "pnbrqk": "known dark/black type",
+    "unknown": "excluded from piece-type accuracy; occupancy may still be known"
+  },
+  "selection": "Fixed 0,4,8,12,16-second samples chosen without model outputs; all five frames inspected separately. 0/4 repeat same placement, 12 changes it; 8/16 contain occlusion.",
+  "evaluationRules": [
+    "Never score unknown labels as empty or inferred pieces.",
+    "Report piece-label coverage and occupancy coverage alongside accuracy.",
+    "No exact-board accuracy possible because decorative major-piece types remain unknown.",
+    "No side-to-move, castling, en-passant, repetition or move-number labels.",
+    "These five correlated frames are one video source, not five independent games.",
+    "No inference, fitting or threshold tuning was performed by the annotator."
+  ],
+  "records": [
+    {
+      "id": "pexels-6599638-t00",
+      "split": "diagnostic-video",
+      "group": "pexels-6599638",
+      "image": "video/overhead-0.png",
+      "sourceSha256": "f0a3f4e0cf5dcdc62951f1cba3c187227e28b015ebbd0fe680cc8083416e3e00",
+      "timestampSeconds": 0,
+      "frameIndex": 0,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "screenCornersTLTRBRBL": [
+        [
+          934,
+          396
+        ],
+        [
+          1535,
+          392
+        ],
+        [
+          1577,
+          963
+        ],
+        [
+          923,
+          971
+        ]
+      ],
+      "canonicalCornersA8H8H1A1": [
+        [
+          1535,
+          392
+        ],
+        [
+          1577,
+          963
+        ],
+        [
+          923,
+          971
+        ],
+        [
+          934,
+          396
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 8,
+      "orientation": "printed-board-coordinates",
+      "completePiecePlacementKnown": false,
+      "completeOccupancyKnown": true,
+      "humanConfirmed": false,
+      "annotationMethod": "Independent assistant visual inspection of this actual frame before any recognition-model inference. Not user-confirmed. No legality or previous-frame completion.",
+      "squares": {
+        "a1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "a2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "a4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "a6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b1": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "b2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "c2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c3": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c5": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "c8": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "d1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "d2": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "d3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "d8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "e2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "e6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "f1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f3": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "f4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "f8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "g1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "g4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "h2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h5": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "h6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h7": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "h8": {
+          "label": ".",
+          "occupancy": "empty"
+        }
+      }
+    },
+    {
+      "id": "pexels-6599638-t04",
+      "split": "diagnostic-video",
+      "group": "pexels-6599638",
+      "image": "video/overhead-4.png",
+      "sourceSha256": "c2a8365129a8debef19115e4f0ee09248f6f2045148af66ba32527f575fbf8a5",
+      "timestampSeconds": 4,
+      "frameIndex": 100,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "screenCornersTLTRBRBL": [
+        [
+          984,
+          442
+        ],
+        [
+          1592,
+          442
+        ],
+        [
+          1635,
+          1020
+        ],
+        [
+          979,
+          1027
+        ]
+      ],
+      "canonicalCornersA8H8H1A1": [
+        [
+          1592,
+          442
+        ],
+        [
+          1635,
+          1020
+        ],
+        [
+          979,
+          1027
+        ],
+        [
+          984,
+          442
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 8,
+      "orientation": "printed-board-coordinates",
+      "completePiecePlacementKnown": false,
+      "completeOccupancyKnown": true,
+      "humanConfirmed": false,
+      "annotationMethod": "Independent assistant visual inspection of this actual frame before any recognition-model inference. Not user-confirmed. No legality or previous-frame completion.",
+      "squares": {
+        "a1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "a2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "a4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "a6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b1": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "b2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "c2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c3": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c5": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "c8": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "d1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "d2": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "d3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "d8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "e2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "e6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "f1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f3": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "f4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "f8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "g1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "g4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "h2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h5": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "h6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h7": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "h8": {
+          "label": ".",
+          "occupancy": "empty"
+        }
+      }
+    },
+    {
+      "id": "pexels-6599638-t08",
+      "split": "diagnostic-video",
+      "group": "pexels-6599638",
+      "image": "video/overhead-8.png",
+      "sourceSha256": "4ed2e1a1931a391abd804ee2c29041ffca09b27183d604936368cc04bde2c5e1",
+      "timestampSeconds": 8,
+      "frameIndex": 200,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "screenCornersTLTRBRBL": [
+        [
+          991,
+          443
+        ],
+        [
+          1604,
+          443
+        ],
+        [
+          1653,
+          1022
+        ],
+        [
+          980,
+          1028
+        ]
+      ],
+      "canonicalCornersA8H8H1A1": [
+        [
+          1604,
+          443
+        ],
+        [
+          1653,
+          1022
+        ],
+        [
+          980,
+          1028
+        ],
+        [
+          991,
+          443
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 8,
+      "orientation": "printed-board-coordinates",
+      "completePiecePlacementKnown": false,
+      "completeOccupancyKnown": false,
+      "humanConfirmed": false,
+      "annotationMethod": "Independent assistant visual inspection of this actual frame before any recognition-model inference. Not user-confirmed. No legality or previous-frame completion.",
+      "squares": {
+        "a1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "a2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "a4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "a6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b1": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "b2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "c2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c3": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c5": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "c8": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "d1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "d2": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "d3": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d4": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "d8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "e2": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e3": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e4": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "f1": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "f2": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "f3": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "f4": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "f5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "f6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "f8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "g1": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "g2": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "g3": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "g4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h1": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "h2": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "h3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h5": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "h6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h7": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "h8": {
+          "label": ".",
+          "occupancy": "empty"
+        }
+      }
+    },
+    {
+      "id": "pexels-6599638-t12",
+      "split": "diagnostic-video",
+      "group": "pexels-6599638",
+      "image": "video/overhead-12.png",
+      "sourceSha256": "53a63d6b25aa13cd0fa00f54cffa67cba4dc9a46e92b0a26062073e8a31d06c1",
+      "timestampSeconds": 12,
+      "frameIndex": 300,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "screenCornersTLTRBRBL": [
+        [
+          956,
+          463
+        ],
+        [
+          1571,
+          468
+        ],
+        [
+          1608,
+          1060
+        ],
+        [
+          933,
+          1060
+        ]
+      ],
+      "canonicalCornersA8H8H1A1": [
+        [
+          1571,
+          468
+        ],
+        [
+          1608,
+          1060
+        ],
+        [
+          933,
+          1060
+        ],
+        [
+          956,
+          463
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 8,
+      "orientation": "printed-board-coordinates",
+      "completePiecePlacementKnown": false,
+      "completeOccupancyKnown": true,
+      "humanConfirmed": false,
+      "annotationMethod": "Independent assistant visual inspection of this actual frame before any recognition-model inference. Not user-confirmed. No legality or previous-frame completion.",
+      "squares": {
+        "a1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "a2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "a4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "a6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b1": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "b2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "c2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c3": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c5": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "c8": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "d1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "d2": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "d3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "d8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "e2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e5": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "e6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "f1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "f8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "g1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "g4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "h2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h5": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "h6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h7": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "h8": {
+          "label": ".",
+          "occupancy": "empty"
+        }
+      }
+    },
+    {
+      "id": "pexels-6599638-t16",
+      "split": "diagnostic-video",
+      "group": "pexels-6599638",
+      "image": "video/overhead-16.png",
+      "sourceSha256": "f3bdfbc5c5299ee22488675eac5bad790482fefc65608d56d88ebe945eebf354",
+      "timestampSeconds": 16,
+      "frameIndex": 400,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "screenCornersTLTRBRBL": [
+        [
+          964,
+          453
+        ],
+        [
+          1583,
+          463
+        ],
+        [
+          1612,
+          1060
+        ],
+        [
+          936,
+          1053
+        ]
+      ],
+      "canonicalCornersA8H8H1A1": [
+        [
+          1583,
+          463
+        ],
+        [
+          1612,
+          1060
+        ],
+        [
+          936,
+          1053
+        ],
+        [
+          964,
+          453
+        ]
+      ],
+      "cornerAnnotationUncertaintyPixels": 8,
+      "orientation": "printed-board-coordinates",
+      "completePiecePlacementKnown": false,
+      "completeOccupancyKnown": false,
+      "humanConfirmed": false,
+      "annotationMethod": "Independent assistant visual inspection of this actual frame before any recognition-model inference. Not user-confirmed. No legality or previous-frame completion.",
+      "squares": {
+        "a1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "a2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "a4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a5": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "a6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "a7": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "a8": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "b1": {
+          "label": "n",
+          "occupancy": "occupied"
+        },
+        "b2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "b5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "b6": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "b7": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "b8": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "c1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "c2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c3": {
+          "label": "R",
+          "occupancy": "occupied"
+        },
+        "c4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "c5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "c6": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "c7": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "c8": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "d2": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "d3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "d4": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d6": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d7": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "d8": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e1": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "e2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e5": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e6": {
+          "label": "unknown",
+          "occupancy": "unknown",
+          "reason": "Hand/arm occlusion or moving-piece overlap; no temporal fill-in."
+        },
+        "e7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "e8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "f1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "f7": {
+          "label": "P",
+          "occupancy": "occupied"
+        },
+        "f8": {
+          "label": "unknown",
+          "occupancy": "occupied",
+          "reason": "Piece present, but decorative piece type cannot be reliably distinguished in this frame."
+        },
+        "g1": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g3": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "g4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g5": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g7": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "g8": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h1": {
+          "label": "r",
+          "occupancy": "occupied"
+        },
+        "h2": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h3": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h4": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h5": {
+          "label": "p",
+          "occupancy": "occupied"
+        },
+        "h6": {
+          "label": ".",
+          "occupancy": "empty"
+        },
+        "h7": {
+          "label": "N",
+          "occupancy": "occupied"
+        },
+        "h8": {
+          "label": ".",
+          "occupancy": "empty"
+        }
+      }
+    }
+  ]
+}

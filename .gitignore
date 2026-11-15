@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .build/
 *.log
+*.mobileprovision
+entitlements.plist
+device.json

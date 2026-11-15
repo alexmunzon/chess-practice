@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Bounded generated-image benchmark; no claim of piece recognition."""
-import importlib.util,json,sys,tempfile
+import hashlib,importlib.util,json,sys,tempfile
 from pathlib import Path
 import numpy as np
 from PIL import Image,ImageDraw,ImageFilter
@@ -30,6 +30,8 @@ def main():
     for name,corners in cases:
         path=directory/f'{name}.png'; fixture(corners,name).save(path)
         report=m.calibrate(path,directory/name,detector=detector)
+        assert report['sourceSha256']==hashlib.sha256(path.read_bytes()).hexdigest()
+        assert len(report['orientedRgbSha256'])==64
         detected=bool(report['squares']); error=None
         if detected:
             error=float(np.mean(np.linalg.norm(np.array(report['corners'])-corners,axis=1)))

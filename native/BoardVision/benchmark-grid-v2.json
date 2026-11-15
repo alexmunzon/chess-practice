@@ -1,0 +1,83 @@
+{
+  "results": [
+    {
+      "case": "front",
+      "detected": true,
+      "meanCornerErrorPixels": 11.175460011408054,
+      "proposalCount": 1
+    },
+    {
+      "case": "perspective",
+      "detected": true,
+      "meanCornerErrorPixels": 11.269626692163257,
+      "proposalCount": 1
+    },
+    {
+      "case": "rotation",
+      "detected": true,
+      "meanCornerErrorPixels": 9.735518423847807,
+      "proposalCount": 1
+    },
+    {
+      "case": "blur",
+      "detected": true,
+      "meanCornerErrorPixels": 1.3689348894129922,
+      "proposalCount": 9
+    },
+    {
+      "case": "glare",
+      "detected": true,
+      "meanCornerErrorPixels": 11.175460011408054,
+      "proposalCount": 1
+    },
+    {
+      "case": "covered",
+      "detected": false,
+      "meanCornerErrorPixels": null,
+      "proposalCount": 1
+    },
+    {
+      "case": "negative",
+      "detected": false,
+      "meanCornerErrorPixels": null,
+      "proposalCount": 1
+    }
+  ],
+  "manualChecks": "passed",
+  "scope": "board-corner calibration only; seven generated fixtures; not real-world or piece recognition accuracy",
+  "realDevelopmentResult": {
+    "sourceSha256": "8ee44b3d00617acfff63734ae05338368bb07ca21b463603d4b8dcc358ba7145",
+    "status": "needs-human-confirmation",
+    "prediction": [
+      [
+        541.2790252727167,
+        323.23382673413334
+      ],
+      [
+        2039.209851221465,
+        322.0135636808401
+      ],
+      [
+        2292.6301161252177,
+        1432.154267330218
+      ],
+      [
+        310.7340939540501,
+        1433.7873114710983
+      ]
+    ],
+    "meanCornerErrorPixels": 6.994274202596544,
+    "maxCornerErrorPixels": 14.04972738910878,
+    "annotationUncertaintyPixels": 10,
+    "selectedGeometryMethod": "numpy-grid-line-extrapolation",
+    "checkerScore": {
+      "alternationCorrelation": 0.4702058628066724,
+      "contrast": 78.421875,
+      "tileCornerCorrelation": 0.9505430930090508,
+      "tileCornerContrast": 142.1484375,
+      "passesHeuristic": true
+    },
+    "annotationFile": "development-annotation.json",
+    "frozenBeforeHeldOutEvaluation": true
+  }
+}

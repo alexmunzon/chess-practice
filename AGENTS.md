@@ -9,3 +9,5 @@ Require human confirmation of complete position and historical game state. Board
 Use project-local pinned official-registry dependencies and preserve notices. Keep evaluation source provenance; do not include licensed source media/derivatives in delivered code. Browser screenshots of this project's own UI are acceptable test evidence. Do not ship Stockfish binaries until corresponding-source delivery obligations are verified.
 
 Run npm test after changes. Run the separate macOS calibration tests when modifying vision code. Keep actual recognition, manual setup and synthetic labeled observations clearly distinguished. Consult docs/PLAN.md, docs/VERIFICATION.md and docs/REUSE.md for current scope and known limits.
+
+Use the existing bounded build/test/review/checkpoint process recorded in docs/WORKFLOW.md. Read HANDOFF.md before resuming, keep one active task packet there, and save evidence and unresolved issues before stopping. Do not install an autonomous controller or self-restarting agent loop.

@@ -59,3 +59,25 @@ One real physical board image was also evaluated: **Chess board opening staunton
 - Evaluated dimensions: 2611×1699. Result: **abstained, no rectangle candidates**. No ground-truth corners were annotated, so no real-photo corner accuracy is claimed.
 
 The real photo and all derivatives are in temporary local storage only, not in delivered source. One failed real-photo case and blur failure establish that automatic physical-board recognition is not ready. Manual calibration is the usable fallback; actual piece recognition remains unimplemented.
+
+## Grid-line fallback, version 2
+
+The baseline above is retained verbatim as historical evidence. The current Python CLI adds a bounded NumPy grid-line fallback when no Vision rectangle passes the checker filter. It downsamples to at most 640 pixels, performs gradient-weighted Hough voting for two near-axis line families, refines lines, fits a vertical line pencil and projective horizontal spacing, and enumerates possible missing outside lines. No manual corners, filenames, starting positions or known piece locations are used as detector inputs.
+
+The checker filter additionally samples four small patches near each tile's corners, where pieces occlude less of the surface than at the center. It accepts tile-corner alternation correlation ≥0.85 with contrast ≥25, or the original center correlation ≥0.75 with contrast ≥25. These scores are heuristics, never probabilities. A checkerboard without chess pieces can pass. Grid extrapolation assumes visible consecutive lines and a near-axis board; irregular borders, stronger perspective, heavy occlusion or rotated physical views may still fail.
+
+Algorithm parameters were frozen before the integrator's held-out image evaluation: 640px thumbnail, Gaussian sigma1, absolute gradient >max(8,p90), slope range [-0.5,0.5] in 0.01 increments, retained votes ≥45% of peak with 9px separation; 3–9 horizontal and 5–9 vertical lines; vertical fit residual ≤3px and spacing ratio ≤1.5; horizontal projective residual ≤2px and spacing ratio ≤1.7. No new dependencies were installed.
+
+On the development-only Staxringold photo, this produces an automatic proposal with **6.99px mean and 14.05px maximum corner error**, relative to manually labelled corners with approximately 10px annotation uncertainty. The annotations were recorded from original pixels before developing the fallback, and never passed to it. See `development-annotation.json` and `benchmark-grid-v2.json`. This is a development result, not evidence of generalization. The five synthetic positives now all produce candidates, including sigma4 blur at 1.37px mean error; both negatives still abstain. The four existing positive results are unchanged. The first physical-photo failure is preserved in `benchmark-2026-11-10.json`.
+
+The report is now schema version2. `sourceSha256` hashes the exact original file; `orientedRgbSha256` hashes decoded, EXIF-oriented RGB bytes, and `imageSize` gives their dimensions. Downstream consumers must verify source identity and oriented dimensions before applying polygons. `selectedGeometryMethod` distinguishes manual, Apple Vision rectangle, and NumPy grid-line routes. Calibration confirmation still says nothing about piece accuracy or game state.
+
+To evaluate without leaking ground truth into predictions:
+
+```sh
+python3 tests/vision_real.py --image /tmp/chess-real-staunton.jpg \
+  --annotation native/BoardVision/development-annotation.json \
+  --detector /tmp/chess-board-candidates --output /tmp/chess-real-evaluation
+```
+
+The annotation contract is documented by `development-annotation.json`: exact input hash, oriented dimensions, split, independently labelled TL/TR/BR/BL corners and uncertainty. `tests/vision_real.py` calls automatic calibration without those labels, then measures errors. It preserves abstentions instead of substituting manual predictions. It records the calibration source-code SHA256 in each evaluation. Do not tune on held-out evaluation results and continue calling those images held out.

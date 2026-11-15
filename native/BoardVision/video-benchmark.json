@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Frozen automatic board localization diagnostic; not piece recognition",
+  "algorithmSha256": "3e58c0be1af2e7d7941fcb3547f3be60ecaec54de2dc93664a04aa741f3948dc",
+  "detectorSourceSha256": "1fab6092bf64176b5cef5efaa1a1698812bbe21b954539902df4897804d4977f",
+  "detectorBinarySha256": "88208fc15c45a7db24219d719ab68076278373b86f822a07d191e03546e42822",
+  "manifestSha256": "5fc46f3d779769124fb4d45e34f5b0b4f5dbd2b76f1b507a48bc1be8e1d25364",
+  "source": {
+    "title": "Top View Footage Of People Playing Chess",
+    "pageUrl": "https://www.pexels.com/video/top-view-footage-of-people-playing-chess-6599638/",
+    "author": "Tima Miroshnichenko",
+    "authorUrl": "https://www.pexels.com/@tima-miroshnichenko/",
+    "license": "Pexels License (free-use stock-media license with restrictions; not CC0)",
+    "licenseUrl": "https://www.pexels.com/license/",
+    "licenseVerifiedDate": "2026-11-10",
+    "licenseSummary": "Allows free download/use/modification; no implied endorsement, offensive portrayal, unaltered resale, stock-platform redistribution or trademark use. No media/derivatives shipped in repository.",
+    "mediaUrl": "https://videos.pexels.com/video-files/6599638/6599638-uhd_2560_1440_25fps.mp4",
+    "localMedia": "video/pexels-6599638.mp4",
+    "mediaSha256": "1336c9ae9ab1f1d996e628e4c67f578b855ff19127716c0b1d868b0749d49b33",
+    "durationSeconds": 19.92,
+    "fps": 25,
+    "frameSize": [
+      2560,
+      1440
+    ],
+    "audioPresent": false,
+    "format": "MP4/H.264",
+    "downloadDate": "2026-11-10"
+  },
+  "split": "diagnostic-video",
+  "annotationConvention": "screenCornersTLTRBRBL; EXIF-oriented pixels; no symmetry matching",
+  "methodology": "Automatic image-only calibration first; annotation geometry scored post hoc. No manual fallback or detector tuning.",
+  "grossFalseDetectionDefinition": "Maximum corner error after subtracting annotation uncertainty exceeds half the mean annotated square side. Diagnostic criterion, not a deployed confidence gate.",
+  "limitations": [
+    "Five correlated frames from one video, not independent games.",
+    "Annotations are assistant visual estimates, not user-confirmed; uncertainty is not a statistical confidence interval.",
+    "No piece/FEN, live capture, wearable-view or hardware accuracy established.",
+    "Runtime includes file I/O and derivative generation, not end-to-end live latency."
+  ],
+  "summary": {
+    "frames": 5,
+    "detections": 0,
+    "abstentions": 5,
+    "grossFalseDetections": 0,
+    "withinAnnotationUncertainty": 0
+  },
+  "results": [
+    {
+      "id": "pexels-6599638-t00",
+      "sourceSha256": "f0a3f4e0cf5dcdc62951f1cba3c187227e28b015ebbd0fe680cc8083416e3e00",
+      "timestampSeconds": 0,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "status": "abstained",
+      "detected": false,
+      "geometryMethod": null,
+      "proposalCount": 1,
+      "elapsedSeconds": 0.7021210002712905,
+      "annotationUncertaintyPixels": 8,
+      "annotationHumanConfirmed": false,
+      "prediction": null,
+      "meanCornerErrorPixels": null,
+      "maxCornerErrorPixels": null,
+      "meanErrorBeyondAnnotationUncertaintyPixels": null,
+      "grossFalseDetection": false,
+      "outcome": "abstained",
+      "meanAnnotatedSquareSidePixels": 75.08468816989304
+    },
+    {
+      "id": "pexels-6599638-t04",
+      "sourceSha256": "c2a8365129a8debef19115e4f0ee09248f6f2045148af66ba32527f575fbf8a5",
+      "timestampSeconds": 4,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "status": "abstained",
+      "detected": false,
+      "geometryMethod": null,
+      "proposalCount": 2,
+      "elapsedSeconds": 0.6922874161973596,
+      "annotationUncertaintyPixels": 8,
+      "annotationHumanConfirmed": false,
+      "prediction": null,
+      "meanCornerErrorPixels": null,
+      "maxCornerErrorPixels": null,
+      "meanErrorBeyondAnnotationUncertaintyPixels": null,
+      "grossFalseDetection": false,
+      "outcome": "abstained",
+      "meanAnnotatedSquareSidePixels": 75.89549961264662
+    },
+    {
+      "id": "pexels-6599638-t08",
+      "sourceSha256": "4ed2e1a1931a391abd804ee2c29041ffca09b27183d604936368cc04bde2c5e1",
+      "timestampSeconds": 8,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "status": "abstained",
+      "detected": false,
+      "geometryMethod": null,
+      "proposalCount": 1,
+      "elapsedSeconds": 0.5489556668326259,
+      "annotationUncertaintyPixels": 8,
+      "annotationHumanConfirmed": false,
+      "prediction": null,
+      "meanCornerErrorPixels": null,
+      "maxCornerErrorPixels": null,
+      "meanErrorBeyondAnnotationUncertaintyPixels": null,
+      "grossFalseDetection": false,
+      "outcome": "abstained",
+      "meanAnnotatedSquareSidePixels": 76.63124557080788
+    },
+    {
+      "id": "pexels-6599638-t12",
+      "sourceSha256": "53a63d6b25aa13cd0fa00f54cffa67cba4dc9a46e92b0a26062073e8a31d06c1",
+      "timestampSeconds": 12,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "status": "abstained",
+      "detected": false,
+      "geometryMethod": null,
+      "proposalCount": 1,
+      "elapsedSeconds": 0.6876476658508182,
+      "annotationUncertaintyPixels": 8,
+      "annotationHumanConfirmed": false,
+      "prediction": null,
+      "meanCornerErrorPixels": null,
+      "maxCornerErrorPixels": null,
+      "meanErrorBeyondAnnotationUncertaintyPixels": null,
+      "grossFalseDetection": false,
+      "outcome": "abstained",
+      "meanAnnotatedSquareSidePixels": 77.51932288176317
+    },
+    {
+      "id": "pexels-6599638-t16",
+      "sourceSha256": "f3bdfbc5c5299ee22488675eac5bad790482fefc65608d56d88ebe945eebf354",
+      "timestampSeconds": 16,
+      "imageSize": [
+        2560,
+        1440
+      ],
+      "status": "abstained",
+      "detected": false,
+      "geometryMethod": null,
+      "proposalCount": 0,
+      "elapsedSeconds": 0.9127471670508385,
+      "annotationUncertaintyPixels": 8,
+      "annotationHumanConfirmed": false,
+      "prediction": null,
+      "meanCornerErrorPixels": null,
+      "maxCornerErrorPixels": null,
+      "meanErrorBeyondAnnotationUncertaintyPixels": null,
+      "grossFalseDetection": false,
+      "outcome": "abstained",
+      "meanAnnotatedSquareSidePixels": 77.92106030980776
+    }
+  ]
+}

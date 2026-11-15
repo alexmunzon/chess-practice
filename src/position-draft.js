@@ -1,9 +1,17 @@
 const PIECES = /^[prnbqkPRNBQK]$/;
+/** A photo supplies placement only. Every historical field stays unknown. */
+export function createPlacementDraft(placement) {
+  if(typeof placement!=='string')throw new Error('Piece placement required.');
+  const ranks=placement.split('/');
+  if(ranks.length!==8)throw new Error('Eight ranks required.');
+  const board=ranks.map(rank=>{const cells=[];for(const char of rank){if(/^[1-8]$/.test(char))cells.push(...Array(Number(char)).fill(null));else if(PIECES.test(char))cells.push(char);else throw new Error('Invalid piece.');}if(cells.length!==8)throw new Error('Each rank needs eight squares.');return cells;});
+  return {board,turn:'',castling:'',ep:'',halfmove:null,fullmove:null};
+}
 export function createDraft(fen) {
   if (typeof fen !== 'string') throw new Error('FEN required.');
   const parts=fen.trim().split(/\s+/), ranks=parts[0]?.split('/');
   if(parts.length!==6 || ranks.length!==8)throw new Error('Complete FEN required.');
-  const board=ranks.map(rank=>{const cells=[];for(const char of rank){if(/^[1-8]$/.test(char))cells.push(...Array(Number(char)).fill(null));else if(PIECES.test(char))cells.push(char);else throw new Error('Invalid piece.');}if(cells.length!==8)throw new Error('Each rank needs eight squares.');return cells;});
+  const {board}=createPlacementDraft(parts[0]);
   return {board,turn:parts[1],castling:parts[2],ep:parts[3],halfmove:Number(parts[4]),fullmove:Number(parts[5])};
 }
 export function emptyDraft(){return {board:Array.from({length:8},()=>Array(8).fill(null)),turn:'w',castling:'-',ep:'-',halfmove:0,fullmove:1};}
@@ -13,7 +21,7 @@ export function setDraftPiece(draft,square,piece){
 }
 export function draftFen(draft){
   if(!['w','b'].includes(draft.turn))throw new Error('Choose whose turn it is.');
-  if(!/^(?:-|K?Q?k?q?)$/.test(draft.castling)||!draft.castling)throw new Error('Invalid castling rights.');
+  if(!/^(?:-|K?Q?k?q?)$/.test(draft.castling)||!draft.castling)throw new Error('Confirm castling rights from the game history, including none.');
   if(!/^(?:-|[a-h][36])$/.test(draft.ep))throw new Error('Choose a valid en passant target or none.');
   if(!Number.isSafeInteger(draft.halfmove)||draft.halfmove<0||!Number.isSafeInteger(draft.fullmove)||draft.fullmove<1)throw new Error('Move counters must be whole numbers (halfmove ≥ 0, fullmove ≥ 1).');
   if(!Array.isArray(draft.board)||draft.board.length!==8)throw new Error('Eight ranks required.');

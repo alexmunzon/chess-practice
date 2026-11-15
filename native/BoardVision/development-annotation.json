@@ -1,0 +1,33 @@
+{
+  "image": "Chess board opening staunton.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Chess_board_opening_staunton.jpg",
+  "license": "CC BY-SA 3.0",
+  "author": "Staxringold",
+  "licenseURL": "https://creativecommons.org/licenses/by-sa/3.0/",
+  "split": "development",
+  "sourceSha256": "8ee44b3d00617acfff63734ae05338368bb07ca21b463603d4b8dcc358ba7145",
+  "imageSize": [
+    2611,
+    1699
+  ],
+  "manualCorners": [
+    [
+      541,
+      320
+    ],
+    [
+      2042,
+      318
+    ],
+    [
+      2280,
+      1426
+    ],
+    [
+      311,
+      1428
+    ]
+  ],
+  "annotationMethod": "Visual source-image inspection before algorithm development, without automatic prediction overlay. Approximate 10px annotation uncertainty. Not passed to detector.",
+  "estimatedAnnotationUncertaintyPixels": 10
+}
