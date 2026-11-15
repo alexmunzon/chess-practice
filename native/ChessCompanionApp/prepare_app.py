@@ -198,7 +198,9 @@ def main():
         "Owned synthetic images: generated 2026-11-11 by scripts/simulation/render.py.\n"
         "Engine GPL notices and chess.js license are preserved in Runtime/.\n"
         "Do not distribute until corresponding-source delivery obligations are verified.\n")
-    command = [swiftc, "-parse-as-library", "-swift-version", "6", "-target", target_triple, "-sdk", sdk,
+    # -O: optimized build. Without it swiftc defaults to -Onone (debug code), the main measured cause
+    # of the slow pixel recognizer. -O does not enable fast-math, so recognizer decisions are unchanged.
+    command = [swiftc, "-parse-as-library", "-swift-version", "6", "-O", "-target", target_triple, "-sdk", sdk,
                "-D", "COMPANION_MONOLITHIC_BUILD", "-D", "COMPANION_RUNTIME_SOURCE", *(["-D", "COMPANION_SELFTEST"] if args.self_test else []),
                "-module-cache-path", str(output / "module-cache"), "-emit-executable",
                "-Xlinker", "-no_adhoc_codesign", "-o", str(app / "ChessCompanion"), *[str(output / "sources" / p) for p in sources]]

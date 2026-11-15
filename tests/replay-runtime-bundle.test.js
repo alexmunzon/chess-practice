@@ -4,6 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {join,resolve,dirname} from 'node:path';
+import {writeFile} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {buildDeviceRuntime} from '../scripts/build-device-runtime.mjs';
@@ -103,7 +106,61 @@ test('tracker-shaped traffic never reaches the engine, even when malformed',asyn
   const reply=await route(JSON.stringify(request));
   assert.equal(reply.error.trackerRevoked,true);assert.equal(reply.guidanceAllowed,false);assert.equal(reply.mode,'replay-only');
  }
- assert.ok(engine.calls.every(call=>call==='cancel()'));
+ // One engine cancel per tracker-shaped request and nothing else (every() alone passes on zero calls).
+ assert.deepEqual(engine.calls,['cancel()','cancel()','cancel()']);
  assert.equal(runtime.isTrackerCommand('x'.repeat(16385)),false);
  assert.throws(()=>runtime.createRequestRouter({engine:{handle(){}},tracker}),/required/);
+});
+
+// The real reply path: runtime.js loaded from the chess-local://bundle scheme it requires, so its
+// own startup succeeds and its own submit() -> post() carries the tracker result. This runs in a
+// child process because runtime.js defines a non-configurable global that the fatal-start import
+// above already owns. Only fetch (the WKURLSchemeHandler stand-in) and postMessage are stubbed.
+test('built runtime.js posts tracker results through its own submit/post reply path',async()=>{
+ const hooks=join(dir,'chess-local-hooks.mjs'),child=join(dir,'reply-path-child.mjs');
+ const bundle=pathToFileURL(built.outputDirectory+'/').href;
+ await writeFile(hooks,`
+const BUNDLE=${JSON.stringify(bundle)};
+const map=url=>new URL(url.slice('chess-local://bundle/'.length),BUNDLE).href;
+export async function resolve(specifier,context,next){
+ const parent=context.parentURL??'';
+ if(specifier.startsWith('chess-local:')) return {url:specifier,shortCircuit:true,format:'module'};
+ if(parent.startsWith('chess-local:')&&(specifier.startsWith('./')||specifier.startsWith('../'))) return {url:new URL(specifier,parent).href,shortCircuit:true,format:'module'};
+ return next(specifier,context);
+}
+export async function load(url,context,next){
+ if(!url.startsWith('chess-local:')) return next(url,context);
+ const {readFile}=await import('node:fs/promises');
+ return {format:'module',shortCircuit:true,source:await readFile(new URL(map(url)))};
+}`);
+ await writeFile(child,`
+import {register} from 'node:module';
+import {readFile} from 'node:fs/promises';
+register(${JSON.stringify(pathToFileURL(hooks).href)});
+const BUNDLE=${JSON.stringify(bundle)};
+const posted=[];
+globalThis.webkit={messageHandlers:{chessRuntime:{postMessage:text=>posted.push(JSON.parse(text))}}};
+globalThis.addEventListener??=()=>{};
+const types={js:'text/javascript',wasm:'application/wasm'};
+globalThis.fetch=async url=>{
+ const u=new URL(url);
+ if(u.protocol!=='chess-local:'||u.hostname!=='bundle') throw new Error('non-bundle fetch '+url);
+ const bytes=await readFile(new URL(u.pathname.slice(1),BUNDLE));
+ return new Response(bytes,{headers:{'content-type':types[u.pathname.split('.').pop()]}});
+};
+await import('chess-local://bundle/runtime.js');
+const request=${JSON.stringify(JSON.stringify(transcript[0].request))};
+await globalThis.chessDeviceRuntime.submit(request,'transport-tracker-1');
+await globalThis.chessDeviceRuntime.submit(${JSON.stringify(JSON.stringify({schemaVersion:1,requestId:'engine-position',kind:'position',fen:START}))},'transport-engine-1');
+globalThis.chessDeviceRuntime.shutdown();
+process.stdout.write(JSON.stringify(posted));
+`);
+ const {stdout}=await promisify(execFile)(process.execPath,[child],{cwd:dir,timeout:30_000});
+ const posted=JSON.parse(stdout);
+ assert.deepEqual(posted[0],{protocolVersion:1,kind:'ready'},'runtime.js started under the bundle scheme');
+ assert.equal(posted.length,3);
+ assert.deepEqual(posted[1],{protocolVersion:1,kind:'reply',transportId:'transport-tracker-1',ok:true,result:transcript[0].reply});
+ assert.equal(JSON.stringify(posted[1].result),JSON.stringify(transcript[0].reply),'byte-identical tracker reply through post()');
+ assert.equal(posted[2].transportId,'transport-engine-1');assert.equal(posted[2].ok,true);
+ assert.equal(posted[2].result.position.legalMoves.length,20);
 });

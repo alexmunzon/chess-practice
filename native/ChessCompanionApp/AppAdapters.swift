@@ -55,14 +55,24 @@ struct StudyResources: Sendable {
 
 actor OfflinePixelRecognizer: OfflineImageRecognizer {
     private let resources: StudyResources
+    /// Verified, prepared template features: built on the first successful call, then reused.
+    /// Actor isolation serializes access, so no lock is needed. A failed preparation is not
+    /// cached; the next call verifies the bundled asset again.
+    private var prepared: NativeSyntheticRecognizer?
     init(resources: StudyResources) { self.resources = resources }
+    private func recognizer() throws -> NativeSyntheticRecognizer {
+        if let prepared { return prepared }
+        let recognizer = try NativeSyntheticRecognizer(templateData: resources.checked("classic-templates-v1.json"))
+        prepared = recognizer
+        return recognizer
+    }
     func recognize(_ bytes: Data) async throws -> OfflineBoard {
         try Task.checkCancellation()
-        let recognizer = try NativeSyntheticRecognizer(templateData: resources.checked("classic-templates-v1.json"))
-        let result = try recognizer.recognize(imageData: bytes)
+        let result = try recognizer().recognize(imageData: bytes)
         try Task.checkCancellation()
+        let digest = NativeSyntheticRecognizer.sha256(bytes)
         guard result["source"] as? String == "synthetic-pixel-inference", result["status"] as? String == "needs-human-review",
-              result["sourceSha256"] as? String == NativeSyntheticRecognizer.sha256(bytes),
+              result["sourceSha256"] as? String == digest,
               result["guidanceAllowed"] as? Bool == false, result["fen"] is NSNull,
               let cells = result["squares"] as? [String:[String:Any]] else { throw OfflineStudyError.invalidImage }
         var squares: [String:String] = [:]
@@ -73,7 +83,7 @@ actor OfflinePixelRecognizer: OfflineImageRecognizer {
                   confidence == 0 || confidence == 1 else { throw OfflineStudyError.invalidImage }
             squares[square] = confidence == 1 ? label : "unknown"
         }
-        return OfflineBoard(sha256: NativeSyntheticRecognizer.sha256(bytes), squares: squares)
+        return OfflineBoard(sha256: digest, squares: squares)
     }
 }
 
@@ -89,7 +99,11 @@ actor OfflinePixelRecognizer: OfflineImageRecognizer {
     }
     private var started = false
     private var closureHandler: (@MainActor () -> Void)?
-    func start() async throws { try await runtime.start(); started = true }
+    func start() async throws {
+        try await runtime.start(); started = true
+        // A runtime that died during start (before `started` was set) is reported now, not ignored.
+        if !runtime.isReady { runtimeStopped() }
+    }
     func validate(_ fen: String) async throws -> ValidatedPosition { try await reporting { try await chess.validatePosition(fen) } }
     func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult { try await reporting { try await chess.analyze(request) } }
     func speech(fen: String, move: String) async throws -> String { try await reporting { try await chess.speechForLegalMove(fen: fen, moveUCI: move) } }

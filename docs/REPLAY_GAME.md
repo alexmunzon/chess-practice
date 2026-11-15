@@ -93,6 +93,9 @@ Engine reply checks are unchanged. `ReplayTrackerRuntimeTransport.swift` adapts 
 Evidence: `tests/replay-runtime-bundle.test.js` imports the built bundle and replays the golden
 transcript through the router (28/28 byte-identical); 5 new mocked IntegrationChecks (18/18 total).
 Outputs in `/Users/alexmunzon/chess-builds/replay-wiring-2026-11-15/`. **Not verified:** no WebKit,
-Simulator or device execution of the new bundle; `VerifyRuntime` (now also sends initialize and
-snapshot) was compiled only. The app build (`native/ChessCompanionApp/prepare_app.py`) still pins the
-12-asset list and will reject this bundle until updated.
+Simulator or device execution of the new bundle at that time; `VerifyRuntime` (now also sends initialize
+and snapshot) was compiled only. Since then the app build (`native/ChessCompanionApp/prepare_app.py`) pins
+all 15 runtime assets, and the Replay game mode runs this bundle in the Simulator self-test.
+
+Virtual time and sequences are whole safe integers: `capturedAtMs` must pass `Number.isSafeInteger`
+(a value such as `1e300` or `100.5` is rejected, revokes tracking and never moves the virtual clock).

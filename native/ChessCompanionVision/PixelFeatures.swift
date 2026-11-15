@@ -11,41 +11,47 @@ public enum PixelFeatures {
     /// Clamp/truncate RGB64 -> GaussianBlur(0.5) -> RGB32 -> crop 2px -> RGB/255.
     /// Malformed internal arrays fail closed with an empty feature vector.
     public static func extract(_ pixels: [Double]) -> [Double] {
-        guard pixels.count == tileSize * tileSize * 3,
-              pixels.allSatisfy({ $0.isFinite }) else { return [] }
-        var bytes = pixels.map { UInt8(min(255.0, max(0.0, $0))) }
-        // Pillow's extended-box Gaussian approximation runs three horizontal
-        // passes, then three vertical passes. Integer rounding occurs each pass.
-        for _ in 0..<3 { bytes = blurPass(bytes, horizontal: true) }
-        for _ in 0..<3 { bytes = blurPass(bytes, horizontal: false) }
-        let small = resizeRGB(bytes, width: tileSize, height: tileSize,
-                              toWidth: 32, toHeight: 32)
-        var result = [Double]()
-        result.reserveCapacity(featureSize * featureSize * 3)
-        for y in 2..<30 {
-            for x in 2..<30 {
-                let offset = (y * 32 + x) * 3
-                for channel in 0..<3 { result.append(Double(small[offset + channel]) / 255.0) }
+        let count = tileSize * tileSize * 3
+        guard pixels.count == count else { return [] }
+        return pixels.withUnsafeBufferPointer { source -> [Double] in
+            for value in source where !value.isFinite { return [] }
+            // Same integer arithmetic as before (blur x3 horizontal, x3 vertical, then the
+            // separable 64->32 resize), but with two reused byte buffers and resampling
+            // weights computed once instead of per-pass/per-tile allocations.
+            var front = [UInt8](repeating: 0, count: count), back = [UInt8](repeating: 0, count: count)
+            front.withUnsafeMutableBufferPointer { a in
+                back.withUnsafeMutableBufferPointer { b in
+                    for index in 0..<count { a[index] = UInt8(min(255.0, max(0.0, source[index]))) }
+                    // Pillow's extended-box Gaussian approximation runs three horizontal
+                    // passes, then three vertical passes. Integer rounding occurs each pass.
+                    blurPass(a, into: b, horizontal: true); blurPass(b, into: a, horizontal: true); blurPass(a, into: b, horizontal: true)
+                    blurPass(b, into: a, horizontal: false); blurPass(a, into: b, horizontal: false); blurPass(b, into: a, horizontal: false)
+                }
             }
+            var result = [Double](repeating: 0, count: featureSize * featureSize * 3)
+            front.withUnsafeBufferPointer { blurred in
+                result.withUnsafeMutableBufferPointer { output in downsampleCrop(blurred, into: output) }
+            }
+            return result
         }
-        return result
     }
 
-    private static func blurPass(_ input: [UInt8], horizontal: Bool) -> [UInt8] {
+    /// One fixed 0.5-radius pass (horizontal or vertical) over a 64x64 RGB tile.
+    /// value = center*p + outer*(prior + next), rounded with >>24; edges clamp to the
+    /// tile, so the first/last pixel reuse themselves as prior/next neighbor.
+    private static func blurPass(_ input: UnsafeMutableBufferPointer<UInt8>, into output: UnsafeMutableBufferPointer<UInt8>,
+                                 horizontal: Bool) {
         // Fixed 24-bit coefficients sum to 2^24; radius is always 0.5 here.
         let center: Int64 = 15_379_114
         let outer: Int64 = 699_051
         let rounding: Int64 = 1 << 23
-        var output = [UInt8](repeating: 0, count: input.count)
+        let step = horizontal ? 3 : tileSize * 3          // distance to the neighbor along the pass
         for y in 0..<tileSize {
             for x in 0..<tileSize {
-                let priorX = horizontal ? max(0, x - 1) : x
-                let nextX = horizontal ? min(tileSize - 1, x + 1) : x
-                let priorY = horizontal ? y : max(0, y - 1)
-                let nextY = horizontal ? y : min(tileSize - 1, y + 1)
+                let position = horizontal ? x : y
                 let index = (y * tileSize + x) * 3
-                let previous = (priorY * tileSize + priorX) * 3
-                let next = (nextY * tileSize + nextX) * 3
+                let previous = position > 0 ? index - step : index
+                let next = position < tileSize - 1 ? index + step : index
                 for channel in 0..<3 {
                     let value = center * Int64(input[index + channel])
                         + outer * (Int64(input[previous + channel]) + Int64(input[next + channel]))
@@ -53,7 +59,50 @@ public enum PixelFeatures {
                 }
             }
         }
-        return output
+    }
+
+    /// Weights of the fixed 64->32 feature resize: computed once; an immutable
+    /// lazily initialized static, so it is safe to share across threads/actors.
+    private static let featureResizePlan = weights(input: 64, output: 32)
+
+    /// resizeRGB(64x64 -> 32x32), then the 2-pixel crop and /255. Same 22-bit integer
+    /// accumulation as resizeRGB; only the 28x28 output pixels that are kept are computed.
+    private static func downsampleCrop(_ input: UnsafeBufferPointer<UInt8>, into output: UnsafeMutableBufferPointer<Double>) {
+        let plan = featureResizePlan
+        let rounding: Int64 = 1 << 21
+        var horizontal = [UInt8](repeating: 0, count: 32 * tileSize * 3)
+        horizontal.withUnsafeMutableBufferPointer { h in
+            for y in 0..<tileSize {
+                for x in 0..<32 {
+                    let start = plan[x].start
+                    plan[x].coefficients.withUnsafeBufferPointer { weights in
+                        for channel in 0..<3 {
+                            var value = rounding
+                            for offset in 0..<weights.count {
+                                value += Int64(input[(y * tileSize + start + offset) * 3 + channel]) * weights[offset]
+                            }
+                            h[(y * 32 + x) * 3 + channel] = UInt8(clamping: value >> 22)
+                        }
+                    }
+                }
+            }
+            var cursor = 0
+            for y in 2..<30 {
+                let start = plan[y].start
+                plan[y].coefficients.withUnsafeBufferPointer { weights in
+                    for x in 2..<30 {
+                        for channel in 0..<3 {
+                            var value = rounding
+                            for offset in 0..<weights.count {
+                                value += Int64(h[((start + offset) * 32 + x) * 3 + channel]) * weights[offset]
+                            }
+                            output[cursor] = Double(UInt8(clamping: value >> 22)) / 255.0
+                            cursor += 1
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private struct ResampleWeights {
@@ -122,27 +171,31 @@ public enum PixelFeatures {
 
     /// Mean squared horizontal + vertical gradient of the RGB-mean feature.
     public static func edgeEnergy(_ features: [Double]) -> Double {
-        guard features.count == featureSize * featureSize * 3,
-              features.allSatisfy({ $0.isFinite }) else { return .nan }
-        var gray = [Double](repeating: 0, count: featureSize * featureSize)
-        for index in gray.indices {
-            gray[index] = (features[index * 3] + features[index * 3 + 1] + features[index * 3 + 2]) / 3.0
-        }
-        var vertical = 0.0, horizontal = 0.0
-        for y in 0..<featureSize {
-            for x in 0..<featureSize {
-                let index = y * featureSize + x
-                if y + 1 < featureSize {
-                    let delta = gray[index + featureSize] - gray[index]
-                    vertical += delta * delta
+        guard features.count == featureSize * featureSize * 3 else { return .nan }
+        return features.withUnsafeBufferPointer { input -> Double in
+            for value in input where !value.isFinite { return .nan }
+            var grayStorage = [Double](repeating: 0, count: featureSize * featureSize)
+            return grayStorage.withUnsafeMutableBufferPointer { gray -> Double in
+                for index in 0..<gray.count {
+                    gray[index] = (input[index * 3] + input[index * 3 + 1] + input[index * 3 + 2]) / 3.0
                 }
-                if x + 1 < featureSize {
-                    let delta = gray[index + 1] - gray[index]
-                    horizontal += delta * delta
+                var vertical = 0.0, horizontal = 0.0
+                for y in 0..<featureSize {
+                    for x in 0..<featureSize {
+                        let index = y * featureSize + x
+                        if y + 1 < featureSize {
+                            let delta = gray[index + featureSize] - gray[index]
+                            vertical += delta * delta
+                        }
+                        if x + 1 < featureSize {
+                            let delta = gray[index + 1] - gray[index]
+                            horizontal += delta * delta
+                        }
+                    }
                 }
+                let count = Double(featureSize * (featureSize - 1))
+                return vertical / count + horizontal / count
             }
         }
-        let count = Double(featureSize * (featureSize - 1))
-        return vertical / count + horizontal / count
     }
 }

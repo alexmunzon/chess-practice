@@ -254,3 +254,28 @@ Local commit `a13ed1c` holds everything up to the stopping point. After it: Repl
 **Screen-board detection prototype** (`native/ScreenBoardVision/`, `scripts/recognition/make_screen_scenes.py`): on 360 simulated screen scenes it found the board within 1% in 99.5% (dev) / 99.3% (held-out), 0 false accepts including 48 non-board negatives, mean corner error about 0.12 px, about 100 ms per frame on the Mac; iOS typecheck only. Simulated flat screens without lens distortion or moiré; one piece set. Agent-reported, not re-run.
 
 **Still running:** occupancy pixel classifier; recognizer speed-up patch. **Still open:** the low review items listed at the stopping point; recognition at about 1.5 s per frame on the phone is the main speed limit for following a game.
+
+
+## Checkpoint — optimization flag found and applied; phone run interrupted (November 15, 2026, 22:15 Madrid)
+
+**Cause of slow recognition:** `prepare_app.py` compiled the app with no `-O` (Swift default `-Onone`). Mac, same code: about 3,000 ms per frame at `-Onone`, 41 ms at `-O`, about 27 ms with the patched Vision sources. Full report: `docs/RECOGNIZER_PERFORMANCE.md`; evidence `/Users/alexmunzon/chess-builds/recognizer-perf-2026-11-15/`.
+
+**Applied (uncommitted, on top of `1e34c5c`):** `recognizer-perf.patch` (Vision), `app-side.patch` (recognizer prepared once in its actor; `-O` in `prepare_app.py`); a `SelfTest.swift` helper made static for the Swift 6 data-race check at `-O`; `capturedAtMs` must be a safe integer in `replay-runtime.js` and `device-game-session.js` (the latter went beyond the brief: without it a `1e300` frame left the tracker stuck until the next review; golden transcript unchanged); `start()` reports a runtime that died during start; stronger `replay-runtime-bundle` tests; doc line. Runtime manifest is now `d2e2c51d…e84d44`.
+
+**Checks (integration agent; `npm test` re-run by orchestrator: 204 tests, 200 pass, 0 fail, 4 skipped):** decisions byte-identical before/after on 78 frames / 4,992 squares and 15 frames / 960 squares; mock suites 28/28, 21/21, 18/18, 94/94; Simulator self-test 18/18 ×3 at load 3–9; in-flight switch and step-during-analysis still caught a running analysis. Simulator recognition 2,975–3,479 ms → 51–129 ms; replay step 2,791–3,454 ms → 36–96 ms; engine search unchanged. Evidence: `/Users/alexmunzon/chess-builds/perf-integration-2026-11-15/`.
+
+**Phone:** `phone_selftest.sh` run 1 with the optimized self-test build was **INTERRUPTED (exit 3)**: the app started inactive (`applicationState 1`), all 7 attempted checks reported "engine not ready"; no timing evidence. The script then restored the **optimized normal build** (unsigned `5c9ce79e…17745d`, signed `4d43ca0d…0ddf0c`, 0 self-test strings), which is what the phone has now. Optimized recognition speed on the phone is still unmeasured. Re-run needs the phone awake and unlocked.
+
+
+## Checkpoint — optimized build 18/18 on the real phone (November 15, 2026, 22:18 Madrid)
+
+`perf-integration-2026-11-15/phone-run2/selftest-report.json` (SHA-256 `e513d3ca…92677c`), iPhone 17 / iOS 27.2, optimized self-test build (unsigned `064f454c…41309d`): **18/18, complete, 0 speak requests, exit 0**, app active throughout.
+
+- **Recognition on the phone: 39–122 ms** per image (was 1,440–1,830 ms unoptimized). Replay frame step (recognition + two tracker requests): **52–88 ms** (was 1,570–1,670 ms).
+- Engine search unchanged: 1.50–1.99 s, with one 3.46 s search (after-e4 fixture). The engine is now the dominant cost.
+- Moves this run: study `e2e4`, `c7c5`, `e1d2`, `e1d2`; replay `e2e4 e7e5 g1f3 b8c6 f1b5 g8f6 d2d3`. Moves vary between runs (bounded search); each was accepted by the app's own rules reply.
+- All safety checks passed again, including in-flight switch and step-during-analysis. Review is the scripted fixture.
+
+Phone now has the **optimized normal build** (unsigned `5c9ce79e…17745d`, signed `4d43ca0d…0ddf0c`, 0 self-test strings, Replay mode included). Not hand-tested. All of this is uncommitted on top of `1e34c5c`.
+
+**Next:** join screen detection + occupancy classifier + move inference into one offline pipeline on simulated scenes; swap in the special-move replay game; Mock Device Kit capture path; decide on the engine search budget now that recognition is no longer the bottleneck.

@@ -16,7 +16,8 @@ const TRACKER_KEYS = ['schemaVersion', 'requestId', 'kind', 'mode', 'clockDomain
   'trackingReady', 'guidanceAllowed', 'liveGuidanceAllowed', 'state'];
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_.:/-]{1,128}$/.test(value);
-const time = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+// Virtual replay time is whole milliseconds; huge values such as 1e300 must never move the clock.
+const time = value => Number.isSafeInteger(value) && value >= 0;
 const failure = (message, code) => Object.assign(new Error(message), {code});
 
 function peek(text) {

@@ -152,6 +152,22 @@ test('virtual clock is max(previous, frame time), never reads host clocks', () =
   }
 });
 
+test('huge, fractional or unsafe capturedAtMs is rejected and never moves the virtual clock', () => {
+  for (const bad of [1e300, Number.MAX_SAFE_INTEGER + 2, 100.5, Number.MAX_VALUE]) {
+    const r = readyRig();
+    const before = r.runtime.virtualClockMs;
+    const reply = r.observe(START_FEN, bad);
+    assert.ok(reply.error, `capturedAtMs ${bad} must be rejected`);
+    assert.equal(reply.error.trackerRevoked, true);
+    assert.equal(r.runtime.virtualClockMs, before, `capturedAtMs ${bad} must not move the clock`);
+    // After a renewed review the replay clock still works normally.
+    r.setSession({epoch: 2}); assert.equal(r.initialize().state.status, 'stabilizing');
+    r.observe(START_FEN, before + 100);
+    assert.equal(r.observe(START_FEN, before + 200).trackingReady, true);
+    assert.equal(r.runtime.virtualClockMs, before + 200);
+  }
+});
+
 test('golden transcript: full legal game with en passant, capture and both castlings reproduces byte-for-byte', () => {
   const {entries, finalFen} = buildTranscript();
   if (process.env.UPDATE_REPLAY_FIXTURE === '1') {

@@ -530,6 +530,11 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
                 "identityStillCurrent": r.result?.identity == r.currentIdentity && r.result != nil]
     }
 
+    /// A normal step must leave the model tracking the expected position after exactly two observations.
+    private static func tracked(_ s: [String: Any], fen: String) -> Bool {
+        s["phase"] as? String == "tracking" && s["trackedFEN"] as? String == fen && s["trackerRequests"] as? Int == 2
+    }
+
     private func runReplay(_ r: ReplayGameModel, study: OfflineStudyModel, modeState: AppModeState) async {
         log.record("selftest.replay.begin")
         modeState.mode = .replay // the app's onChange deactivates study and activates replay
@@ -568,16 +573,12 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
         // R2-R4. Full 14-frame game: review once, track every frame, analyze several plies,
         // advance during analysis, obstructed frame mid-game, renewed review, continue.
         var steps: [[String: Any]] = [], recommendations: [[String: Any]] = [], reviews: [[String: Any]] = []
-        var cleanSteps = true, sanSeen: [String] = []
+        var cleanSteps = true
         var advanceCheck: [String: Any] = [:], advancePass = false
         var occlusion: [String: Any] = [:], occlusionPass = false
         let fens = Self.scriptedReplayFENs
         reviews.append(await replayReview(r, fen: fens[0]))
         if r.phase == .tracking { recommendations.append(await replayAnalyze(r, ply: 0)) } else { cleanSteps = false }
-        func tracked(_ s: [String: Any], ply: Int) -> Bool {
-            if let san = s["lastMoveSAN"] as? String, sanSeen.last != san { sanSeen.append(san) }
-            return s["phase"] as? String == "tracking" && s["trackedFEN"] as? String == fens[ply] && s["trackerRequests"] as? Int == 2
-        }
         for index in 1...13 {
             if Task.isCancelled || !cleanSteps { break }
             let ply = index / 2
@@ -635,7 +636,7 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
             }
             let s = await replayStep(r)
             steps.append(s)
-            if !tracked(s, ply: ply) { cleanSteps = false; break }
+            if !Self.tracked(s, fen: fens[ply]) { cleanSteps = false; break }
             if [2, 6, 10, 12].contains(index) { recommendations.append(await replayAnalyze(r, ply: ply)) }
         }
         let legalRecs = recommendations.filter { $0["legalPerAppRulesReply"] as? Bool == true && $0["moveUCI"] is String }

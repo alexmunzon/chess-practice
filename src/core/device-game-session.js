@@ -42,7 +42,7 @@ function command(text, clockDomain) {
     const frame = value.frame;
     if (!exact(frame, ['identity', 'capturedAtMs', 'squares']) ||
         !exact(frame.identity, ['sessionId', 'epoch', 'sequence', 'frameSha256']) ||
-        !integer(frame.identity.sequence) || typeof frame.identity.frameSha256 !== 'string' ||
+        !integer(frame.identity.sequence) || !integer(frame.capturedAtMs) || typeof frame.identity.frameSha256 !== 'string' ||
         !/^[a-f0-9]{64}$/.test(frame.identity.frameSha256)) throw failure('Invalid replay frame identity.');
     value.session = sessionIdentity({sessionId: frame.identity.sessionId, epoch: frame.identity.epoch});
     validateObservation({sourceId: value.session.sessionId, epoch: value.session.epoch,
@@ -80,8 +80,8 @@ export class DeviceGameSession {
     let now;
     try { now = this.#clock(); } catch { throw failure('Replay clock failed.', 'INVALID_CLOCK'); }
     if (generation !== this.#generation) throw failure('Reentrant replay command revoked this operation.', 'ABORTED');
-    if (typeof now !== 'number' || !Number.isFinite(now) || now < 0 || now < this.#lastNow) {
-      throw failure('Replay clock must be finite, nonnegative and monotonic.', 'INVALID_CLOCK');
+    if (!Number.isSafeInteger(now) || now < 0 || now < this.#lastNow) {
+      throw failure('Replay clock must be a safe integer, nonnegative and monotonic.', 'INVALID_CLOCK');
     }
     this.#lastNow = now;
     return now;
