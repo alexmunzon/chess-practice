@@ -13,8 +13,8 @@ test('private phone asset bundle is local, pinned, complete, hashed and executab
  const dir=await mkdtemp(join(tmpdir(),'device-runtime-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  const built=await buildDeviceRuntime(join(dir,'bundle'));
  const bytes=await readFile(join(built.outputDirectory,'runtime-manifest.json'));assert.equal(sha(bytes),built.manifestSha256);
- const manifest=JSON.parse(bytes);assert.equal(manifest.mode,'private-on-device-runtime-assets');assert.equal(manifest.entry,'index.html');assert.equal(built.assetCount,15);
- assert.deepEqual(Object.keys(manifest.assets).sort(),['THIRD_PARTY_NOTICES.md','core/device-backend.js','core/device-game-session.js','core/move-speech.js','core/observation.js','core/position.js','core/replay-runtime.js','core/worker-engine.js','engine/stockfish.js','engine/stockfish.wasm','index.html','licenses/Stockfish-Copying.txt','licenses/chess.js-LICENSE','runtime.js','vendor/chess.js']);
+ const manifest=JSON.parse(bytes);assert.equal(manifest.mode,'private-on-device-runtime-assets');assert.equal(manifest.entry,'index.html');assert.equal(built.assetCount,16);
+ assert.deepEqual(Object.keys(manifest.assets).sort(),['THIRD_PARTY_NOTICES.md','core/device-backend.js','core/device-game-session.js','core/move-speech.js','core/observation.js','core/position.js','core/prewarmed-engine.js','core/replay-runtime.js','core/worker-engine.js','engine/stockfish.js','engine/stockfish.wasm','index.html','licenses/Stockfish-Copying.txt','licenses/chess.js-LICENSE','runtime.js','vendor/chess.js']);
  for(const name of ['core/observation.js','core/device-game-session.js','core/replay-runtime.js']){const data=await readFile(join(ROOT,manifest.assets[name].source));assert.equal(manifest.assets[name].source,'src/'+name);assert.equal(manifest.assets[name].mimeType,'text/javascript');assert.equal(sha(data),manifest.assets[name].sha256,'tracker modules are copied unmodified');}
  assert.deepEqual(manifest.versions,{stockfish:'19.0.1','chess.js':'1.4.0'});assert.ok(built.engineBytes>90_000_000);
  for(const [name,asset] of Object.entries(manifest.assets)){
@@ -29,6 +29,9 @@ test('private phone asset bundle is local, pinned, complete, hashed and executab
  assert.match((await readFile(join(built.outputDirectory,'index.html'),'utf8')),/connect-src 'self' blob:/);
  assert.match((await readFile(join(built.outputDirectory,'runtime.js'),'utf8')),/new Worker\(engineURL \+ '#' \+ encodeURIComponent\(wasmURL\)\)/);
  assert.match((await readFile(join(built.outputDirectory,'runtime.js'),'utf8')),/import \{ReplayRuntime\} from '\.\/core\/replay-runtime\.js';/);
+ assert.match((await readFile(join(built.outputDirectory,'runtime.js'),'utf8')),/import \{createPrewarmedAnalyzer\} from '\.\/core\/prewarmed-engine\.js';/);
+ assert.equal(manifest.assets['core/prewarmed-engine.js'].source,'src/core/prewarmed-engine.js');
+ assert.equal(manifest.assets['core/prewarmed-engine.js'].sha256,sha(await readFile(join(ROOT,'src/core/prewarmed-engine.js'))),'pre-started engine is copied unmodified');
  const {DeviceBackend}=await import(pathToFileURL(join(built.outputDirectory,'core/device-backend.js')));
  const backend=new DeviceBackend({analyzer:()=>assert.fail('position validation does not need an engine')});
  const result=await backend.handle(JSON.stringify({schemaVersion:1,requestId:'asset-check',kind:'position',fen:'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'}));

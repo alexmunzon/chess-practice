@@ -1,6 +1,6 @@
 // Loaded only by the native host's private chess-local://bundle resource scheme.
 import {DeviceBackend} from './core/device-backend.js';
-import {createWorkerAnalyzer} from './core/worker-engine.js';
+import {createPrewarmedAnalyzer} from './core/prewarmed-engine.js';
 import {ReplayRuntime} from './core/replay-runtime.js';
 
 const MAX_REPLY = 128 * 1024;
@@ -29,7 +29,24 @@ export function createRequestRouter({engine, tracker}) {
     return JSON.parse(tracker.handle(commandJSON));
   };
 }
-let backend, router, engineURL, wasmURL, closed = false;
+/** The app's single prewarm owner (docs/PREWARMED_ENGINE.md): one AbortController at a time.
+ * prewarm() asks the analyzer for its one shared spare and reports its state; it never waits and
+ * never yields a result. cancel() aborts the controller, which discards a spare that no analysis
+ * has taken yet. A spare already handed to an analysis is unaffected. */
+export function createPrewarmControl(engine) {
+  if (typeof engine?.prewarm !== 'function' || typeof engine?.state !== 'function') throw new TypeError('A prewarming analyzer is required.');
+  let controller = null;
+  return {
+    prewarm() {
+      if (!controller || controller.signal.aborted) controller = new AbortController();
+      engine.prewarm({signal: controller.signal}).catch(() => {}); // never rejects; a failure only means no spare
+      const spare = engine.state().spare;
+      return spare === 'ready' || spare === 'starting' ? spare : 'none';
+    },
+    cancel() { const previous = controller; controller = null; previous?.abort(); },
+  };
+}
+let backend, router, engine, prewarmControl, engineURL, wasmURL, closed = false;
 const workers = new Set();
 function post(value) {
   const text = JSON.stringify(value);
@@ -58,6 +75,7 @@ function cancel() { backend?.cancel(); }
 function shutdown() {
   if (closed) return;
   closed = true; router = null; backend?.close();
+  prewarmControl?.cancel(); engine?.dispose(); // no spare survives shutdown
   for (const worker of workers) worker.terminate();
   workers.clear();
   if (engineURL) URL.revokeObjectURL(engineURL);
@@ -84,7 +102,9 @@ try {
   if (closed) throw new Error('Runtime closed during loading.');
   engineURL=URL.createObjectURL(new Blob([script],{type:'text/javascript'}));
   wasmURL=URL.createObjectURL(new Blob([wasm],{type:'application/wasm'}));
-  backend=new DeviceBackend({analyzer:createWorkerAnalyzer({createWorker})});
+  engine=createPrewarmedAnalyzer({createWorker});
+  prewarmControl=createPrewarmControl(engine);
+  backend=new DeviceBackend({analyzer:engine.analyze,prewarm:prewarmControl.prewarm,cancelPrewarm:prewarmControl.cancel});
   router=createRequestRouter({engine:backend, tracker:new ReplayRuntime()});
   post({protocolVersion:1,kind:'ready'});
 } catch (error) {

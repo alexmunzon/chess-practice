@@ -12,12 +12,24 @@ private func elapsedMilliseconds(_ start: ContinuousClock.Instant, _ end: Contin
     return (Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15).rounded(toPlaces: 1)
 }
 private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow(10, Double(p)); return (self * m).rounded() / m } }
+private func jsonValue(_ value: Any?) -> Any { value ?? NSNull() }
+/// Search facts the runtime reported with one analysis reply (diagnostics only; never used for advice).
+@MainActor private func searchFacts(_ report: SearchReport?) -> [String: Any] {
+    guard let report else { return ["searchReported": false] }
+    return ["searchReported": true, "nodes": jsonValue(report.nodes.map { Int(clamping: $0) }),
+            "nodesPerSecond": jsonValue(report.nodesPerSecond.map { Int(clamping: $0) }), "searchMs": jsonValue(report.elapsedMilliseconds),
+            "startup": jsonValue(report.startup), "startupMs": jsonValue(report.startupMilliseconds), "spareUsed": report.spareUsed,
+            "fallbackReason": jsonValue(report.fallbackReason)]
+}
 
 /// Timestamped observation log shared by the probe backend and the runner.
 @MainActor final class SelfTestLog {
     static let shared = SelfTestLog()
     let origin = ContinuousClock.now
     private(set) var events: [[String: Any]] = []
+    /// One entry per analysis that returned a move: mode, FEN, move and the runtime's search facts.
+    private(set) var searches: [[String: Any]] = []
+    func recordSearch(_ info: [String: Any]) { searches.append(info) }
     func now() -> Double { elapsedMilliseconds(origin) }
     func record(_ name: String, _ info: [String: Any] = [:]) {
         var event = info; event["event"] = name; event["tMs"] = now(); events.append(event)
@@ -30,7 +42,7 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
 @MainActor final class SelfTestProbeBackend: OfflineBackend {
     private let inner: any OfflineBackend
     private let log: SelfTestLog
-    private(set) var validateCalls = 0, analyzeCalls = 0, speechCalls = 0
+    private(set) var validateCalls = 0, analyzeCalls = 0, speechCalls = 0, prewarmCalls = 0, cancelPrewarmCalls = 0
     init(inner: any OfflineBackend, log: SelfTestLog) { self.inner = inner; self.log = log }
     func start() async throws {
         log.record("backend.start.begin")
@@ -43,9 +55,27 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
     }
     func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
         analyzeCalls += 1; log.record("backend.analyze.begin", ["fen": request.fen, "request": request.id.uuidString])
-        do { let r = try await inner.analyze(request); log.record("backend.analyze.reply", ["move": r.moveUCI, "request": request.id.uuidString]); return r }
+        do {
+            let r = try await inner.analyze(request)
+            var info = searchFacts((inner as? LocalOfflineBackend)?.searchReport(for: request.id))
+            info["move"] = r.moveUCI; info["request"] = request.id.uuidString; info["fen"] = request.fen
+            log.record("backend.analyze.reply", info)
+            info["mode"] = "study"; log.recordSearch(info)
+            return r
+        }
         catch { log.record("backend.analyze.error", ["error": "\(error)", "request": request.id.uuidString]); throw error }
     }
+    /// Forwarded unchanged (the model ignores the outcome); recorded so checks can see when the model asks.
+    func prewarm() async throws {
+        prewarmCalls += 1; log.record("backend.prewarm.begin")
+        do { try await inner.prewarm(); log.record("backend.prewarm.end") } catch { log.record("backend.prewarm.error", ["error": "\(error)"]); throw error }
+    }
+    func cancelPrewarm() async throws {
+        cancelPrewarmCalls += 1; log.record("backend.cancelPrewarm.begin")
+        do { try await inner.cancelPrewarm(); log.record("backend.cancelPrewarm.end") } catch { log.record("backend.cancelPrewarm.error", ["error": "\(error)"]); throw error }
+    }
+    /// Self-test diagnostics only: the runtime's spare state. Asking keeps (or starts) its one shared spare.
+    func spareStatus() async -> String? { await (inner as? LocalOfflineBackend)?.prewarmStatus() }
     func speech(fen: String, move: String) async throws -> String {
         speechCalls += 1; log.record("backend.legalText.begin", ["move": move])
         do { let t = try await inner.speech(fen: fen, move: move); log.record("backend.legalText.end", ["text": t]); return t }
@@ -63,7 +93,7 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
 @MainActor final class SelfTestReplayProbe: ReplayEngineBackend {
     private let inner: LocalOfflineBackend
     private let log: SelfTestLog
-    private(set) var validateCalls = 0, analyzeCalls = 0, legalTextCalls = 0, trackerRequests = 0, overlaps = 0
+    private(set) var validateCalls = 0, analyzeCalls = 0, legalTextCalls = 0, trackerRequests = 0, overlaps = 0, prewarmCalls = 0, cancelPrewarmCalls = 0
     private var engineInFlight = 0, trackerInFlight = 0
     init(inner: LocalOfflineBackend, log: SelfTestLog) { self.inner = inner; self.log = log }
     private func enterEngine() { if trackerInFlight > 0 { overlaps += 1; log.record("replay.VIOLATION.overlap") }; engineInFlight += 1 }
@@ -82,9 +112,30 @@ private extension Double { func rounded(toPlaces p: Int) -> Double { let m = pow
     func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
         analyzeCalls += 1; enterEngine(); defer { engineInFlight -= 1 }
         log.record("replay.engine.analyze.begin", ["fen": request.fen, "request": request.id.uuidString, "revision": request.revision, "epoch": request.frame.epoch])
-        do { let r = try await inner.analyze(request); log.record("replay.engine.analyze.reply", ["move": r.moveUCI, "request": request.id.uuidString]); return r }
+        do {
+            let r = try await inner.analyze(request)
+            var info = searchFacts(inner.searchReport(for: request.id))
+            info["move"] = r.moveUCI; info["request"] = request.id.uuidString; info["fen"] = request.fen
+            log.record("replay.engine.analyze.reply", info)
+            info["mode"] = "replay"; log.recordSearch(info)
+            return r
+        }
         catch { log.record("replay.engine.analyze.error", ["error": "\(error)", "request": request.id.uuidString]); throw error }
     }
+    /// Forwarded unchanged and recorded. Not counted as engine work for the tracker-overlap counters: a prewarm
+    /// carries no position and only ever starts or drops the spare engine.
+    func prewarm() async throws {
+        prewarmCalls += 1; log.record("replay.engine.prewarm.begin")
+        do { try await inner.prewarm(); log.record("replay.engine.prewarm.end") } catch { log.record("replay.engine.prewarm.error", ["error": "\(error)"]); throw error }
+    }
+    func cancelPrewarm() async throws {
+        cancelPrewarmCalls += 1; log.record("replay.engine.cancelPrewarm.begin")
+        do { try await inner.cancelPrewarm(); log.record("replay.engine.cancelPrewarm.end") } catch { log.record("replay.engine.cancelPrewarm.error", ["error": "\(error)"]); throw error }
+    }
+    /// Self-test diagnostics only: the runtime's spare state (asking keeps or starts its one shared spare).
+    func spareStatus() async -> String? { await inner.prewarmStatus() }
+    /// Self-test diagnostics only: true while this probe's local runtime is running.
+    var runtimeRunning: Bool { inner.runtimeRunning }
     /// The app's own rules reply for (FEN, move): legal-move text only, never audio.
     func speech(fen: String, move: String) async throws -> String {
         legalTextCalls += 1; enterEngine(); defer { engineInFlight -= 1 }
@@ -167,7 +218,8 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
     /// Same recognizer, resources and real local backend as the normal app; the
     /// backend is wrapped only by the recording probe, speech is text-only.
     static func makeModel(resources: StudyResources) -> OfflineStudyModel {
-        OfflineStudyModel(
+        studyResources = resources
+        return OfflineStudyModel(
             makeBackend: {
                 let backend = SelfTestProbeBackend(inner: try LocalOfflineBackend(resources: resources), log: .shared)
                 SelfTestRunner.currentProbe = backend
@@ -177,6 +229,15 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
             loadFixture: { try resources.checked($0.asset) }, speech: SelfTestSilentSpeech.shared)
     }
     static var currentProbe: SelfTestProbeBackend?
+    /// The app's own bundle resources (for the runtime allowlist check).
+    static var studyResources: StudyResources?
+    /// The node budget the app sends with every analysis (LocalOfflineBackend.searchBudget).
+    static var budgetNodes: Int? { if case .nodes(let count) = LocalOfflineBackend.searchBudget { return count }; return nil }
+    /// A search honoured the budget: the engine reports at least the budget and stops within 10% above it.
+    static func withinBudget(_ nodes: Int?) -> Bool {
+        guard let nodes, let budget = budgetNodes else { return false }
+        return nodes >= budget && nodes < budget + budget / 10
+    }
     /// Replay model wired exactly like the normal app (real recognizer, real backend and real bundled
     /// tracker in WebKit), wrapped only by the recording probe. It has no speech dependency at all.
     static func makeReplayModel(resources: StudyResources, sequences: [ReplaySequence]) -> ReplayGameModel {
@@ -306,12 +367,47 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
             await specialWork.value
             specialWatchdog.cancel()
         }
+        if !finished && !Task.isCancelled { searchBudgetCheck() }
         if !finished { finish(incomplete: Task.isCancelled, reason: nil) }
     }
 
     // MARK: - Helpers driving the same model methods as the UI
 
     private func pause(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+    /// Waits until this check's engine analysis request has left the app (its probe logged `event`), then
+    /// `settleMs` more, so a switch lands while that search runs. A fixed pause does not work with a fast
+    /// node-budget search on a pre-started engine, which can finish inside it. Returns ms since `start`, or nil
+    /// if the request was not sent within `limitMs` (the caller then fails its precondition).
+    private func waitForAnalysisSent(since index: Int, event: String, from start: ContinuousClock.Instant,
+                                     limitMs: Double = 3000, settleMs: Int = 30) async -> Double? {
+        while !log.events(since: index).contains(where: { $0["event"] as? String == event }) {
+            if Task.isCancelled || elapsedMilliseconds(start) > limitMs { return nil }
+            await pause(2)
+        }
+        await pause(settleMs)
+        return elapsedMilliseconds(start)
+    }
+    /// Waits for an event logged since `index`; true if it came within `limitMs`.
+    private func waitForEvent(since index: Int, _ event: String, limitMs: Double = 3000) async -> Bool {
+        let start = ContinuousClock.now
+        while !log.events(since: index).contains(where: { $0["event"] as? String == event }) {
+            if Task.isCancelled || elapsedMilliseconds(start) > limitMs { return false }
+            await pause(5)
+        }
+        return true
+    }
+    /// Polls the runtime's spare state until it is "ready" (at most `limitMs`). Returns the last state and the wait.
+    private func waitSpareReady(limitMs: Double = 15_000, _ status: () async -> String?) async -> (String?, Double) {
+        let start = ContinuousClock.now
+        var last: String?
+        while !Task.isCancelled && elapsedMilliseconds(start) <= limitMs {
+            last = await status()
+            if last == "ready" { break }
+            await pause(100)
+        }
+        log.record("selftest.spare-status", ["spare": last ?? NSNull(), "waitedMs": elapsedMilliseconds(start)])
+        return (last, elapsedMilliseconds(start))
+    }
     /// Waits until the model is not busy; returns elapsed ms or nil on timeout.
     private func waitIdle(_ model: OfflineStudyModel, from start: ContinuousClock.Instant, timeout: Double = 20_000) async -> Double? {
         while model.busy {
@@ -465,7 +561,7 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 let analysisStart = ContinuousClock.now
                 model.analyze()
                 log.record("selftest.analyze-called", ["fixture": "starting"])
-                await pause(200)
+                let sentMs = await waitForAnalysisSent(since: firstEvent, event: "backend.analyze.begin", from: analysisStart)
                 let busyAtSwitch = model.busy
                 let replyBeforeSwitch = log.events(since: firstEvent).contains { ($0["event"] as? String) == "backend.analyze.reply" || ($0["event"] as? String) == "backend.analyze.error" }
                 log.record("selftest.switch", ["to": "afterE4", "busyAtSwitch": busyAtSwitch, "msAfterAnalyze": elapsedMilliseconds(analysisStart)])
@@ -489,13 +585,14 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 d["legalTextRequestsAfterSwitch"] = timeline.filter { ($0["event"] as? String) == "backend.legalText.begin" && ($0["tMs"] as? Double ?? 0) > switchMs }.count
                 d["busyAtSwitch"] = busyAtSwitch
                 d["engineReplyBeforeSwitch"] = replyBeforeSwitch
-                d["preconditionSearchStillRunningAtSwitch"] = busyAtSwitch && !replyBeforeSwitch
+                d["preconditionSearchStillRunningAtSwitch"] = busyAtSwitch && !replyBeforeSwitch && sentMs != nil
+                d["analysisRequestSentThenSettledMs"] = sentMs ?? NSNull()
                 d["recommendationEverVisible"] = everRecommendation
                 d["moveEverSet"] = everMove
                 d["firstViolationMs"] = firstViolationMs ?? NSNull()
                 d["fixtureAfter"] = model.fixture.rawValue
                 d["observationWindowMs"] = 3000
-                pass = busyAtSwitch && !replyBeforeSwitch && !everRecommendation && !everMove && model.recommendation == nil && model.fixture == .afterE4
+                pass = sentMs != nil && busyAtSwitch && !replyBeforeSwitch && !everRecommendation && !everMove && model.recommendation == nil && model.fixture == .afterE4
             } else { d["failure"] = "could not reach a validated starting position" }
             record("in-flight-switch-no-stale-recommendation", pass: pass, details: d, timings: t, label: scriptedLabel, events: timeline)
         }
@@ -540,6 +637,138 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 && model.fen.isEmpty && model.checks.isEmpty && !model.reviewed && !model.ready && model.fixture == .starting
             record("reset-clears", pass: pass, details: d, timings: t, label: scriptedLabel)
         }
+        if Task.isCancelled { return }
+
+        // 13. Pre-started engine: after a complete review the spare is ready, and the next analysis takes it
+        // and advises the reviewed position only (reply FEN checked, text regenerated by the app's rules).
+        do {
+            var d: [String: Any] = [:], t: [String: Double] = [:]
+            let fen = StudyFixture.afterE4.referenceFEN!
+            let r = await pipeline(model, .afterE4, fen: fen, analyze: false, &d, &t)
+            var spare: String?, reply: [String: Any]?
+            if r.validated, let probe = Self.currentProbe {
+                let (state, waited) = await waitSpareReady { await probe.spareStatus() }
+                spare = state; t["spareReady"] = waited
+                if spare == "ready" && model.canAnalyze {
+                    let first = log.events.count, start = ContinuousClock.now
+                    model.analyze()
+                    t["analysis"] = await waitIdle(model, from: start) ?? -1
+                    reply = log.events(since: first).first { $0["event"] as? String == "backend.analyze.reply" }
+                }
+            }
+            d["spareBeforeAnalysis"] = spare ?? NSNull(); d["analysisReply"] = reply ?? NSNull()
+            d["moveUCI"] = model.move ?? NSNull(); d["recommendationText"] = model.recommendation ?? NSNull()
+            let pass = r.validated && spare == "ready" && reply?["fen"] as? String == fen && reply?["move"] as? String == model.move
+                && reply?["startup"] as? String == "spare" && reply?["spareUsed"] as? Bool == true && Self.withinBudget(reply?["nodes"] as? Int)
+                && model.recommendation != nil && model.fixture == .afterE4
+            record("prewarm-spare-serves-reviewed-position", pass: pass, details: d, timings: t, label: scriptedLabel)
+        }
+        if Task.isCancelled { return }
+
+        // 14. Un-ticking a review box discards the spare: asking afterwards has to start a NEW one ("starting"),
+        // where a kept spare would answer "ready".
+        do {
+            var d: [String: Any] = [:], t: [String: Double] = [:]
+            let r = await pipeline(model, .enPassant, fen: StudyFixture.enPassant.referenceFEN, analyze: false, &d, &t)
+            var spare: String?, after: String?, cancelled = false
+            if r.validated, let probe = Self.currentProbe {
+                let (state, waited) = await waitSpareReady { await probe.spareStatus() }
+                spare = state; t["spareReady"] = waited
+                let first = log.events.count
+                model.setReview(.counters, checked: false)       // Toggle off
+                cancelled = await waitForEvent(since: first, "backend.cancelPrewarm.end")
+                after = await probe.spareStatus()
+                log.record("selftest.cleanup", ["discard": "diagnostic spare"])
+                try? await probe.cancelPrewarm()                 // drop the spare this diagnostic query started
+            }
+            d["spareBeforeUntick"] = spare ?? NSNull(); d["modelCancelledPrewarm"] = cancelled; d["spareStateWhenAskedAfterUntick"] = after ?? NSNull()
+            let pass = r.validated && spare == "ready" && cancelled && after == "starting"
+                && model.recommendation == nil && model.move == nil && !model.reviewed && !model.canAnalyze
+            record("untick-review-discards-spare", pass: pass, details: d, timings: t, label: scriptedLabel)
+        }
+        if Task.isCancelled { return }
+
+        // 15. Runtime allowlist: exactly one asset and two command kinds were added; anything else is still refused.
+        model.reset()                                       // close the study runtime first (one engine page at a time)
+        await allowlistCheck()
+    }
+
+    /// The bundled runtime must refuse a manifest with an unknown (or missing) asset, and must refuse an unknown
+    /// command kind, or a prewarm that claims the replay mode, before anything reaches the engine page.
+    private func allowlistCheck() async {
+        var d: [String: Any] = [:]
+        guard let resources = Self.studyResources, let directory = try? resources.runtimeDirectory() else {
+            record("runtime-allowlist-refuses-unknown-asset-and-kind", pass: false, details: ["failure": "no runtime directory"]); return
+        }
+        let manager = FileManager.default
+        /// nil: the variant could not be written; true: construction refused it; false: accepted.
+        func refused(_ edit: (inout [String: Any]) -> Void) -> Bool? {
+            let temp = manager.temporaryDirectory.appendingPathComponent("selftest-allowlist-\(UUID().uuidString)", isDirectory: true)
+            defer { try? manager.removeItem(at: temp) }
+            do {
+                try manager.createDirectory(at: temp, withIntermediateDirectories: true)
+                guard var manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("runtime-manifest.json"))) as? [String: Any],
+                      var assets = manifest["assets"] as? [String: Any] else { return nil }
+                edit(&assets); manifest["assets"] = assets
+                try JSONSerialization.data(withJSONObject: manifest).write(to: temp.appendingPathComponent("runtime-manifest.json"))
+            } catch { return nil }
+            do { _ = try NativeEngineRuntime(resourceDirectory: temp); return false } catch { return true }
+        }
+        let unchanged = refused { _ in }
+        let extraAsset = refused { $0["core/unknown.js"] = $0["runtime.js"] }
+        let missingPrewarm = refused { $0.removeValue(forKey: "core/prewarmed-engine.js") }
+        d["manifest"] = ["unchangedRefused": jsonValue(unchanged), "extraAssetRefused": jsonValue(extraAsset), "withoutPrewarmedEngineRefused": jsonValue(missingPrewarm)]
+        // Live: the real bundle in its own engine page.
+        var outcomes: [String: String] = [:]
+        var live = false
+        if let runtime = try? NativeEngineRuntime(resourceDirectory: directory) {
+            do {
+                try await runtime.start()
+                live = runtime.isReady
+                let swiftRefusal = "Runtime not ready or command invalid."
+                let cases: [(String, [String: Any])] = [
+                    ("prewarm", ["kind": "prewarm"]), ("cancelPrewarm", ["kind": "cancelPrewarm"]),
+                    ("unknownKind", ["kind": "warmup"]), ("uciGo", ["kind": "go"]), ("caseVariant", ["kind": "Prewarm"]),
+                    ("prewarmWithReplayMode", ["kind": "prewarm", "mode": "trusted-replay"]),
+                ]
+                for (label, fields) in cases {
+                    var command = fields; command["schemaVersion"] = 1; command["requestId"] = "allowlist-\(label)"
+                    let text = String(data: try JSONSerialization.data(withJSONObject: command, options: [.sortedKeys]), encoding: .utf8)!
+                    do {
+                        let reply = try JSONSerialization.jsonObject(with: Data(try await runtime.submit(commandJSON: text, timeoutMilliseconds: 5_000).utf8)) as? [String: Any] ?? [:]
+                        let keys = Set(reply.keys)
+                        outcomes[label] = keys == ["schemaVersion", "requestId", "kind", "runtime", "spare"] || keys == ["schemaVersion", "requestId", "kind", "runtime", "cancelled"]
+                            ? "accepted" : "accepted-unexpected-keys"
+                    } catch NativeEngineRuntimeError.unavailable(let message) where message == swiftRefusal {
+                        outcomes[label] = "refused-before-send"
+                    } catch { outcomes[label] = "error: \(error)" }
+                }
+                // A prewarm must never cancel a pending real request (it is refused instead). A 100,000-node analysis
+                // stands in for any engine or tracker request: the runtime has one pending slot for all of them.
+                let identity: [String: Any] = ["sessionId": "allowlist", "epoch": 1, "sequence": 1, "frameSha256": String(repeating: "a", count: 64), "revision": 1]
+                let analyzeCommand: [String: Any] = ["schemaVersion": 1, "requestId": "allowlist-held-analysis", "kind": "analyze", "confirmation": true,
+                                                     "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "nodes": 100_000, "identity": identity]
+                let analyzeText = String(data: try JSONSerialization.data(withJSONObject: analyzeCommand, options: [.sortedKeys]), encoding: .utf8)!
+                let held = Task { @MainActor () -> String in
+                    do { _ = try await runtime.submit(commandJSON: analyzeText, timeoutMilliseconds: 30_000); return "reply" }
+                    catch NativeEngineRuntimeError.cancelled { return "cancelled" } catch { return "error: \(error)" }
+                }
+                await pause(20)                              // the analysis is now the runtime's pending request
+                do { _ = try await runtime.submit(commandJSON: #"{"kind":"prewarm","requestId":"allowlist-prewarm-while-busy","schemaVersion":1}"#, timeoutMilliseconds: 5_000)
+                     outcomes["prewarmWhileAnalysisPending"] = "accepted" }
+                catch NativeEngineRuntimeError.unavailable(let message) where message == "Runtime busy; prewarm skipped." { outcomes["prewarmWhileAnalysisPending"] = "refused-busy" }
+                catch { outcomes["prewarmWhileAnalysisPending"] = "error: \(error)" }
+                outcomes["pendingAnalysisOutcome"] = await held.value
+                live = live && runtime.isReady
+            } catch { outcomes["start"] = "error: \(error)" }
+            runtime.close()
+        }
+        d["liveCommands"] = outcomes; d["runtimeStayedReady"] = live
+        let pass = unchanged == false && extraAsset == true && missingPrewarm == true && live
+            && outcomes["prewarm"] == "accepted" && outcomes["cancelPrewarm"] == "accepted"
+            && ["unknownKind", "uciGo", "caseVariant", "prewarmWithReplayMode"].allSatisfy { outcomes[$0] == "refused-before-send" }
+            && outcomes["prewarmWhileAnalysisPending"] == "refused-busy" && outcomes["pendingAnalysisOutcome"] != "cancelled"
+        record("runtime-allowlist-refuses-unknown-asset-and-kind", pass: pass, details: d)
     }
 
     // MARK: - Replay game scenarios (real recognition, real bundled tracker in WebKit, real engine)
@@ -657,7 +886,7 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 // R3. Advance while the analysis of frame 3 is still running.
                 let first = log.events.count, s0 = ContinuousClock.now
                 r.analyze(); log.record("selftest.replay.analyze-called", ["frame": 3])
-                await pause(200)
+                let sentMs = await waitForAnalysisSent(since: first, event: "replay.engine.analyze.begin", from: s0)
                 let analyzingAtStep = r.analyzing
                 let replied = log.events(since: first).contains { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
                 log.record("selftest.replay.step-during-analysis", ["msAfterAnalyze": elapsedMilliseconds(s0)])
@@ -670,11 +899,11 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 let ended = events.first { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
                 let firstTracker = events.first { $0["event"] as? String == "replay.tracker.begin" }
                 let endedMs = ended?["tMs"] as? Double ?? .infinity, trackerMs = firstTracker?["tMs"] as? Double ?? -1
-                advanceCheck = ["analyzingAtStep": analyzingAtStep, "engineReplyBeforeStep": replied, "recommendationEverVisible": everVisible,
+                advanceCheck = ["analysisRequestSentThenSettledMs": sentMs ?? NSNull(), "analyzingAtStep": analyzingAtStep, "engineReplyBeforeStep": replied, "recommendationEverVisible": everVisible,
                                 "analysisOutcome": ended ?? NSNull(), "firstTrackerRequestAfterAnalysisEnded": trackerMs > endedMs,
                                 "legalTextRequests": events.filter { $0["event"] as? String == "replay.engine.legalText.begin" }.count,
                                 "trackedFEN": r.trackedFEN ?? NSNull(), "observationWindowMs": 3000, "events": events]
-                advancePass = analyzingAtStep && !replied && !everVisible && trackerMs > endedMs && r.phase == .tracking
+                advancePass = sentMs != nil && analyzingAtStep && !replied && !everVisible && trackerMs > endedMs && r.phase == .tracking
                     && r.trackedFEN == fens[2] && r.recommendation == nil && (advanceCheck["legalTextRequests"] as? Int) == 0
                 steps.append(["frameIndex": 4, "trackedFEN": r.trackedFEN ?? NSNull(), "phase": "\(r.phase)", "note": "stepped during analysis"])
                 if r.phase != .tracking { cleanSteps = false; break }
@@ -849,7 +1078,7 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
         if r.phase == .tracking && r.trackedFEN == fens[20] && r.canAnalyze {
             let first = log.events.count, s0 = ContinuousClock.now
             r.analyze(); log.record("selftest.special.analyze-called", ["frame": 20])
-            await pause(200)
+            let sentMs = await waitForAnalysisSent(since: first, event: "replay.engine.analyze.begin", from: s0)
             let analyzingAtStep = r.analyzing
             let replied = log.events(since: first).contains { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
             log.record("selftest.special.occlusion-during-analysis", ["msAfterAnalyze": elapsedMilliseconds(s0)])
@@ -867,11 +1096,11 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
             let endedMs = number(ended?["tMs"]) ?? .infinity, trackerMs = number(firstTracker?["tMs"]) ?? -1
             let legalText = events.filter { $0["event"] as? String == "replay.engine.legalText.begin" }.count
             let trackerEnd = events.last { $0["event"] as? String == "replay.tracker.end" }
-            late = ["analyzingAtStep": analyzingAtStep, "engineReplyBeforeStep": replied, "recommendationClearedAtTap": clearedAtTap,
+            late = ["analysisRequestSentThenSettledMs": sentMs ?? NSNull(), "analyzingAtStep": analyzingAtStep, "engineReplyBeforeStep": replied, "recommendationClearedAtTap": clearedAtTap,
                     "recommendationEverVisible": everVisible, "analysisOutcome": ended ?? NSNull(), "engineEndedAfterStepTap": endedMs > stepMs,
                     "firstTrackerRequestAfterAnalysisEnded": trackerMs > endedMs, "legalTextRequests": legalText,
                     "observationWindowMs": 3000, "events": events]
-            latePass = analyzingAtStep && !replied && clearedAtTap && !everVisible && trackerMs > endedMs && legalText == 0
+            latePass = sentMs != nil && analyzingAtStep && !replied && clearedAtTap && !everVisible && trackerMs > endedMs && legalText == 0
                 && r.showingInterruption && r.phase == .needsReview && r.recommendation == nil
             occlusion["obstructedStep"] = ["frame": r.frameLabel, "phase": "\(r.phase)", "interruption": r.showingInterruption,
                                            "unknownSquares": r.board?.squares.values.filter { $0 == "unknown" }.count ?? NSNull(),
@@ -983,8 +1212,72 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
         }
         specialTimings = ["recognitionMsPerFrame": summary(recognition), "engineSearchMs": summary(search),
                           "analysisTotalMs": summary(analysis), "engineStartMs": engineStarts]
+        if Task.isCancelled { return }
+
+        // Switch game while a real analysis (on the pre-started engine) runs: the old game's result is never shown.
+        do {
+            var d: [String: Any] = [:], pass = false
+            r.selectSequence("opening")                    // "Game" picker: stops this engine
+            if await startEngine(), let probe = Self.currentReplayProbe {
+                d["firstFrame"] = await replayStep(r)
+                d["review"] = await replayReview(r, fen: Self.scriptedReplayFENs[0])
+                let (spare, spareWaitMs) = await waitSpareReady { await probe.spareStatus() }
+                d["spareBeforeAnalysis"] = spare ?? NSNull(); d["spareWaitMs"] = spareWaitMs
+                if r.phase == .tracking && r.canAnalyze, let identity = r.currentIdentity {
+                    let first = log.events.count, s0 = ContinuousClock.now
+                    r.analyze(); log.record("selftest.replay.switch-analyze-called", ["fen": identity.fen])
+                    let sentMs = await waitForAnalysisSent(since: first, event: "replay.engine.analyze.begin", from: s0)
+                    let analyzingAtSwitch = r.analyzing
+                    let replied = log.events(since: first).contains { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
+                    log.record("selftest.replay.switch-game-during-analysis", ["msAfterAnalyze": elapsedMilliseconds(s0)])
+                    let switchMs = log.now()
+                    r.selectSequence("special")             // "Game" picker, mid-analysis
+                    let clearedAtSwitch = r.recommendation == nil && r.move == nil
+                    var everVisible = false
+                    let window = ContinuousClock.now
+                    while elapsedMilliseconds(window) < 3000 { if r.recommendation != nil || r.move != nil { everVisible = true }; await pause(10) }
+                    let events = log.events(since: first)
+                    let outcome = events.first { ["replay.engine.analyze.reply", "replay.engine.analyze.error"].contains($0["event"] as? String ?? "") }
+                    let legalTextAfterSwitch = events.filter { $0["event"] as? String == "replay.engine.legalText.begin" && (number($0["tMs"]) ?? 0) > switchMs }.count
+                    d["analysisRequestSentThenSettledMs"] = sentMs ?? NSNull(); d["analyzingAtSwitch"] = analyzingAtSwitch
+                    d["engineReplyBeforeSwitch"] = replied; d["recommendationClearedAtSwitch"] = clearedAtSwitch
+                    d["recommendationEverVisible"] = everVisible; d["analysisOutcome"] = outcome ?? NSNull()
+                    d["legalTextRequestsAfterSwitch"] = legalTextAfterSwitch; d["observationWindowMs"] = 3000
+                    d["sequenceAfter"] = r.selectedSequence.id; d["phaseAfter"] = "\(r.phase)"; d["oldEngineRunning"] = probe.runtimeRunning
+                    d["events"] = events
+                    pass = spare == "ready" && sentMs != nil && analyzingAtSwitch && !replied && clearedAtSwitch && !everVisible
+                        && legalTextAfterSwitch == 0 && r.recommendation == nil && r.move == nil && r.trackedFEN == nil
+                        && r.selectedSequence.id == "special" && r.phase == .engineStopped && !r.ready && !probe.runtimeRunning
+                } else { d["failure"] = "could not reach a tracked, analyzable first frame of the opening game" }
+            } else { d["failure"] = "engine did not start for the opening game" }
+            record("replay-switch-game-during-analysis-real-engine", pass: pass, details: d, label: scriptedLabel)
+        }
         // Leave the replay mode clean.
         r.leave()
+    }
+
+    /// Every analysis that returned a move searched the app's node budget and reported its speed.
+    private func searchBudgetCheck() {
+        let searches = log.searches
+        let modes = Set(searches.compactMap { $0["mode"] as? String })
+        let ok = searches.filter { $0["searchReported"] as? Bool == true && Self.withinBudget($0["nodes"] as? Int) && ($0["nodesPerSecond"] as? Int ?? 0) > 0 }
+        record("every-analysis-searched-node-budget-with-speed-reported",
+               pass: !searches.isEmpty && ok.count == searches.count && modes == ["study", "replay"],
+               details: ["budgetNodes": jsonValue(Self.budgetNodes), "analyses": searches.count, "withinBudgetWithSpeed": ok.count,
+                         "modes": modes.sorted(), "summary": searchSummary()])
+    }
+    /// Per-analysis search facts and their medians (report section "engineSearch").
+    private func searchSummary() -> [String: Any] {
+        let searches = log.searches
+        func median(_ key: String) -> Any {
+            let values = searches.compactMap { ($0[key] as? NSNumber)?.doubleValue }.sorted()
+            return values.isEmpty ? NSNull() : values[values.count / 2]
+        }
+        var paths: [String: Int] = [:]
+        for search in searches { paths[search["startup"] as? String ?? "none", default: 0] += 1 }
+        return ["budgetNodes": jsonValue(Self.budgetNodes), "count": searches.count, "medianNodes": median("nodes"),
+                "medianNodesPerSecond": median("nodesPerSecond"), "medianSearchMs": median("searchMs"), "medianStartupMs": median("startupMs"),
+                "startupPaths": paths, "perAnalysis": searches]
     }
 
     // MARK: - Report
@@ -1034,6 +1327,7 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
             "specialTimeoutSeconds": Self.specialTimeoutSeconds,
             "replay": "Replay game checks drive ReplayGameModel with real recognition, the real bundled tracker in WebKit and the real engine; review is the scripted fixture; text only, no speech dependency",
             "specialReplayGame": specialSection(),
+            "engineSearch": searchSummary(),
             "checks": checks, "eventLog": log.events,
         ]
         guard JSONSerialization.isValidJSONObject(report),

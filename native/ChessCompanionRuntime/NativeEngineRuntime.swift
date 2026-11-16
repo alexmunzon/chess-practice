@@ -28,7 +28,7 @@ private struct RuntimeManifest: Decodable {
 
 @MainActor
 private final class LocalRuntimeAssets: NSObject, WKURLSchemeHandler {
-    static let allowed: Set<String> = ["index.html", "runtime.js", "core/device-backend.js", "core/worker-engine.js", "core/position.js", "core/move-speech.js", "core/observation.js", "core/device-game-session.js", "core/replay-runtime.js", "vendor/chess.js", "engine/stockfish.js", "engine/stockfish.wasm", "licenses/Stockfish-Copying.txt", "licenses/chess.js-LICENSE", "THIRD_PARTY_NOTICES.md"]
+    static let allowed: Set<String> = ["index.html", "runtime.js", "core/device-backend.js", "core/worker-engine.js", "core/prewarmed-engine.js", "core/position.js", "core/move-speech.js", "core/observation.js", "core/device-game-session.js", "core/replay-runtime.js", "vendor/chess.js", "engine/stockfish.js", "engine/stockfish.wasm", "licenses/Stockfish-Copying.txt", "licenses/chess.js-LICENSE", "THIRD_PARTY_NOTICES.md"]
     private let root: URL
     private let manifest: RuntimeManifest
     init(directory: URL) throws {
@@ -109,11 +109,20 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
     public private(set) var isReady = false
     /// Called once, on the main actor, the first time the runtime closes (explicit close or failure).
     public var onClose: (@MainActor () -> Void)?
-    /// Local legal-move engine commands (unchanged). They never carry a `mode` key.
-    public static let engineKinds: Set<String> = ["position", "move", "analyze", "cancel"]
+    /// Local legal-move engine commands. They never carry a `mode` key. `prewarm` / `cancelPrewarm`
+    /// start or discard the runtime's one spare engine; their replies carry no position, move or text.
+    public static let engineKinds: Set<String> = ["position", "move", "analyze", "cancel", "prewarm", "cancelPrewarm"]
     /// Replay-tracker commands (docs/REPLAY_GAME.md); always `mode:"trusted-replay"`. The JS
     /// runtime routes them to its single ReplayRuntime, never to the engine backend.
     public static let trackerKinds: Set<String> = ["initialize", "observe", "invalidate", "snapshot"]
+    /// Spare-engine housekeeping. It carries no position and must never cost a real request its reply.
+    static let prewarmKinds: Set<String> = ["prewarm", "cancelPrewarm"]
+    /// Single pending slot: a new request normally supersedes (cancels) the pending one. A prewarm or
+    /// cancel-prewarm never supersedes a real engine or tracker request; it is refused instead (it is best effort).
+    static func mayReplace(pendingKind: String?, with kind: String) -> Bool {
+        guard let pendingKind, prewarmKinds.contains(kind) else { return true }
+        return prewarmKinds.contains(pendingKind)
+    }
     private static func isFalseBoolean(_ value: Any?) -> Bool {
         guard let number = value as? NSNumber else { return false }
         return CFGetTypeID(number) == CFBooleanGetTypeID() && !number.boolValue
@@ -159,6 +168,7 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
               Self.engineKinds.contains(kind) && command["mode"] == nil ||
               Self.trackerKinds.contains(kind) && command["mode"] as? String == "trusted-replay" else { throw NativeEngineRuntimeError.unavailable("Runtime not ready or command invalid.") }
         let tracker = Self.trackerKinds.contains(kind)
+        guard Self.mayReplace(pendingKind: pending?.kind, with: kind) else { throw NativeEngineRuntimeError.unavailable("Runtime busy; prewarm skipped.") }
         // Single pending request: a tracker request supersedes (cancels) any engine analysis and vice versa.
         cancel()
         let transportId = UUID().uuidString

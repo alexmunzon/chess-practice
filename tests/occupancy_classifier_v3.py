@@ -201,5 +201,63 @@ class V3Cases(unittest.TestCase):
         self.assert_no_wrong(oc.classify(self.later, cal), 'clean frame after banded start')
 
 
+def equal_mean_board(fen):
+    """A sharp board whose light (green) and dark (grey) squares have the same channel mean: the boundary-sharpness
+    measurement (channel mean) sees no step at any square boundary and returns 0, although the board is not blurred
+    and its luminance contrast (about 35) is normal."""
+    import appearance
+    old = appearance.LIGHT_TILE, appearance.DARK_TILE
+    appearance.LIGHT_TILE, appearance.DARK_TILE = (60, 200, 60), (107, 107, 107)
+    try:  # the rectified panel directly (this palette hides the corpus markers from the marker finder)
+        panel = Image.new('RGB', (640, 640), appearance.PANEL_COLOR)
+        rows = [c for row in fen.split()[0].split('/') for ch in row for c in ('.' * int(ch) if ch.isdigit() else ch)]
+        for i, label in enumerate(rows):
+            r, c = divmod(i, 8)
+            panel.paste(appearance.render_tile(label, dark=bool((r + c) % 2)),
+                        (BOARD_ORIGIN[0] + c * TILE_SIZE, BOARD_ORIGIN[1] + r * TILE_SIZE))
+        return panel
+    finally:
+        appearance.LIGHT_TILE, appearance.DARK_TILE = old
+
+
+class SharpnessReferenceCases(unittest.TestCase):
+    """v3.1: the blur gate compares a frame's sharpness with the start's. A reference of 0, below zero, NaN, infinite
+    or missing would switch that gate off (or make it meaningless), so it must be refused, never used."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.start_panel = oc.rectify(render(START, SCENE))
+        cls.cal = oc.calibrate(cls.start_panel, oc.occupancy_from_fen(START))
+        cls.later = oc.rectify(render(AFTER_E4, SCENE))
+
+    def test_zero_sharpness_start_is_rejected(self):
+        panel = equal_mean_board(START)
+        self.assertEqual(oc._sharpness(oc._prepare(panel)[1]), 0.0)  # precondition: the measurement really is 0
+        with self.assertRaises(oc.CalibrationError) as ctx:
+            oc.calibrate(panel, oc.occupancy_from_fen(START))
+        self.assertIn('sharpness', str(ctx.exception))
+
+    def test_invalid_stored_reference_abstains_on_every_square(self):
+        for value in (0.0, -0.5, float('nan'), float('inf'), 'missing'):
+            with self.subTest(value=value):
+                cal = dict(self.cal)
+                if value == 'missing':
+                    del cal['boundarySharpness']
+                else:
+                    cal['boundarySharpness'] = value
+                result = oc.classify(self.later, cal)
+                self.assertEqual(set(result), set(oc.SQUARES))
+                for square, cell in result.items():
+                    self.assertEqual(cell['label'], 'unknown', (value, square))
+                    self.assertEqual(cell['reasons'], ['calibration-sharpness-invalid'], (value, square))
+
+    def test_normal_calibration_is_unaffected(self):
+        self.assertIn('CAL_SHARPNESS_MIN', oc.policy())
+        self.assertGreaterEqual(self.cal['boundarySharpness'], 10 * oc.CAL_SHARPNESS_MIN)
+        truth = oc.occupancy_from_fen(AFTER_E4)
+        result = oc.classify(self.later, self.cal)
+        self.assertEqual({s: c['label'] for s, c in result.items()}, truth)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

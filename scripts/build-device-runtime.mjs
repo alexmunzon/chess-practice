@@ -9,7 +9,7 @@ const sha=data=>createHash('sha256').update(data).digest('hex');
 const sources=[
  ['index.html','native/ChessCompanionRuntime/index.html','text/html'],
  ['runtime.js','native/ChessCompanionRuntime/runtime.js','text/javascript'],
- ...['device-backend','worker-engine','position','move-speech','observation','device-game-session','replay-runtime'].map(name=>[`core/${name}.js`,`src/core/${name}.js`,'text/javascript']),
+ ...['device-backend','worker-engine','prewarmed-engine','position','move-speech','observation','device-game-session','replay-runtime'].map(name=>[`core/${name}.js`,`src/core/${name}.js`,'text/javascript']),
  ['vendor/chess.js','node_modules/chess.js/dist/esm/chess.js','text/javascript'],
  ['engine/stockfish.js','node_modules/stockfish/bin/stockfish-19-single.js','text/javascript'],
  ['engine/stockfish.wasm','node_modules/stockfish/bin/stockfish-19-single.wasm','application/wasm'],

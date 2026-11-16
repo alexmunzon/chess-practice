@@ -109,10 +109,59 @@ enum JSONContract {
     }
 }
 
+/// The search limit sent with an analysis: wall-clock time (50-3000 ms) or a node budget (1,000-2,000,000).
+public enum SearchBudget: Equatable, Sendable {
+    case movetime(milliseconds: Int)
+    case nodes(Int)
+    var valid: Bool {
+        switch self {
+        case .movetime(let milliseconds): return (50...3000).contains(milliseconds)
+        case .nodes(let count): return (1_000...2_000_000).contains(count)
+        }
+    }
+}
+
+/// Diagnostic facts about one search, reported by the local runtime with an analysis reply. They are
+/// never used to decide advice; the reply's move is checked exactly as before.
+public struct SearchReport: Equatable, Sendable {
+    public let nodes: UInt64?
+    public let nodesPerSecond: UInt64?
+    public let elapsedMilliseconds: Double?
+    public let spareUsed: Bool
+    /// "fresh", "spare" or "fallback" (spare unusable, fresh engine started instead).
+    public let startup: String?
+    public let startupMilliseconds: Double?
+    public let fallbackReason: String?
+    static let keys: Set<String> = ["nodes", "nps", "elapsedMs", "spareUsed", "startup", "startupMs", "fallbackReason"]
+    static func parse(_ value: Any?) throws -> SearchReport {
+        guard let object = value as? [String: Any], JSONContract.keys(object, keys),
+              let spareUsed = JSONContract.bool(object["spareUsed"]) else { throw IntegrationFailure.invalidReply }
+        func count(_ key: String) throws -> UInt64? {
+            if object[key] is NSNull { return nil }
+            guard let value = JSONContract.unsigned(object[key]) else { throw IntegrationFailure.invalidReply }; return value
+        }
+        func milliseconds(_ key: String) throws -> Double? {
+            if object[key] is NSNull { return nil }
+            guard let value = JSONContract.number(object[key]), value >= 0, value <= 600_000 else { throw IntegrationFailure.invalidReply }; return value
+        }
+        func text(_ key: String, _ pattern: String) throws -> String? {
+            if object[key] is NSNull { return nil }
+            guard let value = object[key] as? String, JSONContract.matches(value, pattern) else { throw IntegrationFailure.invalidReply }; return value
+        }
+        let startup = try text("startup", "^(fresh|spare|fallback)$")
+        guard !spareUsed || startup == "spare" else { throw IntegrationFailure.invalidReply }
+        return SearchReport(nodes: try count("nodes"), nodesPerSecond: try count("nps"), elapsedMilliseconds: try milliseconds("elapsedMs"),
+                            spareUsed: spareUsed, startup: startup, startupMilliseconds: try milliseconds("startupMs"),
+                            fallbackReason: try text("fallbackReason", "^[a-z-]{1,40}$"))
+    }
+}
+
 /// Shared phone-local rules/engine adapter. Construction does not start any runtime.
 @MainActor public final class LocalChessAdapters: LocalChessRules, NativeChessEngine {
     private let transport: any LocalJSONTransport
     private var current: UUID?
+    /// Search facts of the most recent successful analysis, keyed by its request ID (nil if the runtime sent none).
+    public private(set) var lastSearch: (request: UUID, report: SearchReport?)?
     public init(transport: any LocalJSONTransport) { self.transport = transport }
     public func cancel() {
         let previous = current; current = nil
@@ -139,11 +188,14 @@ enum JSONContract {
             try Task.checkCancellation()
             guard current == operation else { throw IntegrationFailure.cancelled }
             let result = try JSONContract.object(reply)
-            let extra: Set<String>
+            var extra: Set<String>
             switch kind {
             case "position": extra = ["position"]
             case "move": extra = ["fen", "move", "position", "speechText"]
-            case "analyze": extra = ["identity", "fen", "bestMove", "speechText", "status"]
+            // `search` (diagnostic facts) is sent by the current runtime; recorded older backends omit it.
+            case "analyze": extra = ["identity", "fen", "bestMove", "speechText", "status"]; if result["search"] != nil { extra.insert("search") }
+            case "prewarm": extra = ["spare"]
+            case "cancelPrewarm": extra = ["cancelled"]
             default: throw IntegrationFailure.invalidReply
             }
             guard JSONContract.keys(result, extra.union(["schemaVersion", "requestId", "kind", "runtime"])),
@@ -171,20 +223,49 @@ enum JSONContract {
         _ = try JSONContract.position(reply["position"])
         return try JSONContract.speech(reply["speechText"])
     }
+    /// Searches for the request's own time limit (unchanged behaviour).
     public func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
+        try await analyze(request, budget: .movetime(milliseconds: request.movetimeMilliseconds))
+    }
+    /// Searches with an explicit limit. With a node budget the request's movetimeMilliseconds is not sent;
+    /// the runtime then bounds the search by its own wall-clock deadline.
+    public func analyze(_ request: AnalysisRequest, budget: SearchBudget) async throws -> NativeEngineResult {
         try revokeBeforeValidation()
         let fen = try JSONContract.fullFEN(request.fen)
-        guard fen == request.fen, (50...3000).contains(request.movetimeMilliseconds) else { throw IntegrationFailure.invalidFEN }
+        guard fen == request.fen, budget.valid else { throw IntegrationFailure.invalidFEN }
         let identity = try JSONContract.identity(request)
-        let reply = try await send(kind: "analyze", fields: ["fen": fen, "confirmation": true,
-                                                           "movetimeMs": request.movetimeMilliseconds, "identity": identity], timeout: 15_000, requestID: request.id.uuidString)
+        var fields: [String: Any] = ["fen": fen, "confirmation": true, "identity": identity]
+        switch budget {
+        case .movetime(let milliseconds): fields["movetimeMs"] = milliseconds
+        case .nodes(let count): fields["nodes"] = count
+        }
+        let reply = try await send(kind: "analyze", fields: fields, timeout: 15_000, requestID: request.id.uuidString)
         try JSONContract.checkIdentity(reply["identity"], request: request)
         guard reply["fen"] as? String == fen, let status = reply["status"] as? String,
               ["playing", "check", "fifty-move-claim-available"].contains(status) else { throw IntegrationFailure.invalidReply }
         let move = try JSONContract.move(reply["bestMove"], includesSAN: true)
         _ = try JSONContract.speech(reply["speechText"])
+        let report = reply["search"] == nil ? nil : try SearchReport.parse(reply["search"])
+        lastSearch = (request.id, report)
         // Coordinator separately asks the rules adapter to verify this UCI and regenerate speech.
         return NativeEngineResult(request: request, moveUCI: move)
+    }
+    /// Asks the runtime to start (or keep) its one spare engine. Returns its state ("starting", "ready",
+    /// "none"), or nil without sending anything while another request of this adapter is in flight: a
+    /// prewarm never supersedes a real request. Any later request supersedes the prewarm. The reply
+    /// carries no position, move or text and is never turned into a result.
+    public func prewarm() async throws -> String? {
+        guard current == nil else { return nil }
+        let reply = try await send(kind: "prewarm", fields: [:], timeout: 5_000)
+        guard let spare = reply["spare"] as? String, ["starting", "ready", "none"].contains(spare) else { throw IntegrationFailure.invalidReply }
+        return spare
+    }
+    /// Discards a spare engine that no analysis has taken. Like prewarm, it never supersedes a real request.
+    @discardableResult public func cancelPrewarm() async throws -> Bool {
+        guard current == nil else { return false }
+        let reply = try await send(kind: "cancelPrewarm", fields: [:], timeout: 5_000)
+        guard JSONContract.bool(reply["cancelled"]) == true else { throw IntegrationFailure.invalidReply }
+        return true
     }
 }
 

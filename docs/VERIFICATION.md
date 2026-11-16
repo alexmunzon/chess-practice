@@ -1,20 +1,29 @@
-# Current state (2026-11-15)
+# Current state (2026-11-16)
 
-Written November 15, 2026, 23:00 Madrid, at commit `ccb37bf` on `main`. **This section supersedes
-every older section below.** Those older sections are history: they stay exactly as written,
+Refreshed November 16, 2026, at the handoff (about 05:45 Madrid; reader v4.1 notes from 06:40). The
+last commit is still checkpoint `46ce560` on `main` (6 commits, no remote); everything since is
+uncommitted. It updates and supersedes the version written at 01:30 on November 16 and the
+"Current state (2026-11-15)" version before it (rows dated 2026-11-15 below are from that version and
+still hold unless a newer row replaces them or says "superseded"). **This section supersedes every older section below.** Those older sections are history: they stay exactly as written,
 including their Codex evidence paths, and where they say something is "pending", "untested" or
 give an older test count, this section is the current answer.
 
 Short names: `CB` = `/Users/alexmunzon/chess-builds`. Evidence types are kept separate:
 **mock**, **Mac**, **Simulator**, **real phone**, **scripted review**, **human review**.
-"Synthetic" = computer-drawn board images; synthetic accuracy is never camera or physical-board
+Who ran it is also kept separate: **orchestrator-run** means the orchestrator ran the check itself;
+**agent-reported** means a worker reported it and the orchestrator did not re-run it. A row with
+neither label was written before this split; read it as it was.
+"Synthetic" or "simulated images" = computer-drawn board images; their accuracy is never camera or physical-board
 accuracy. Nothing here is "hardware validated" and no engine result is "perfect play".
 
 ### Test suite
 
 | Claim | Exact number | Evidence type | Command or file that proves it | Date |
 | --- | --- | --- | --- | --- |
-| Node test suite | 204 tests, 200 pass, 0 fail, 4 opt-in skipped | Mac | `npm test` (run outside the command sandbox); log `CB/perf-integration-2026-11-15/npm-test.txt`; re-confirmed by the orchestrator at 22:25 | 2026-11-15 |
+| Node test suite | **346 tests, 338 pass, 0 fail, 8 skipped**, 2026-11-16 04:42, orchestrator-run. Supersedes 216 tests, 210 pass, 0 fail, 6 skipped (00:20) | Mac | `npm test` (run outside the command sandbox: `listen EPERM` means sandbox, not a code failure); earlier log `CB/review-all-2026-11-16/npmtest.log` | 2026-11-16 |
+| All checks in one command | 6 of 6 suites passed, 2026-11-16 02:45, orchestrator-run. Two suites (reader v4, frame-age rules) were added to the script afterwards; each passed alone | Mac | `scripts/check-all.sh`; `orchestrator-state.json` | 2026-11-16 |
+| Python suites (latest recorded) | screen_pipeline 31/31, occupancy_classifier_v3 21/21, occupancy_classifier 11/11, screen_game_scenes 32/32, frame-age rules 3 tests with 38/38 rule checks (orchestrator-run). Reader v4: 48 tests for v4.1 (orchestrator-run 06:40); the older 42/42 was for the rejected first freeze | Mac | `orchestrator-state.json` (`pythonTests`); `FABLE-HANDOFF.md` backlog item 1 | 2026-11-16 |
+| Earlier count, before the night's work | see `CB/perf-integration-2026-11-15/npm-test.txt` (0 fail) | Mac | that log | 2026-11-15 |
 
 ### Phone (iPhone 17, iOS 27.2)
 
@@ -26,13 +35,19 @@ accuracy. Nothing here is "hardware validated" and no engine result is "perfect 
 | Self-test with tracker bundled (15-file runtime) | 12/12, complete, 0 speak requests; SHA-256 starts `42f92f62` | Real phone, scripted review | `CB/integration-2026-11-15/phone-run1/selftest-report.json` | 2026-11-15 |
 | Replay mode, unoptimized build | 18/18 (12 Study + 6 Replay); recognition 1,442–1,538 ms in the shown fixtures | Real phone, scripted review | `CB/replay-mode-2026-11-15/phone-run1/summary.txt` | 2026-11-15 |
 | Optimized build, first attempt | Interrupted, exit 3, 0/7 (app started inactive; "engine not ready"); no timing evidence | Real phone | `CB/perf-integration-2026-11-15/phone-run1/summary.txt` | 2026-11-15 |
-| **Optimized build, latest** | **18/18**, complete, 0 speak requests, exit 0 | Real phone, scripted review | `CB/perf-integration-2026-11-15/phone-run2/summary.txt`, `selftest-report.json` | 2026-11-15 |
+| Optimized build (superseded by the 30/30 runs below) | **18/18**, complete, 0 speak requests, exit 0 | Real phone, scripted review | `CB/perf-integration-2026-11-15/phone-run2/summary.txt`, `selftest-report.json` | 2026-11-15 |
 | Recognition time per picture (optimized) | 39–122 ms (unoptimized builds: about 1,440–1,830 ms, per `HANDOFF.md` checkpoints) | Real phone | `phone-run2/summary.json` (`timingsMs.recognition`) | 2026-11-15 |
 | Replay frame step (recognition + 2 tracker requests) | 52–88 ms per game frame (first frame 25.5 ms) | Real phone | `phone-run2/selftest-report.json` (`steps[].stepMs`) | 2026-11-15 |
 | Engine search time | 1,504–1,986 ms, plus one 3,463 ms search (after-e4 fixture) | Real phone | `phone-run2/summary.json` and `selftest-report.json` (`engineSearchMs`) | 2026-11-15 |
 | Replay game followed | 14 frames, 7 legal text recommendations; obstructed frame (16 unknown squares) revoked tracking until a renewed review | Real phone, scripted review | `phone-run2/selftest-report.json` (the `replay-*` checks) | 2026-11-15 |
 | Safety checks on the phone | Obstruction, four-of-five review, side-to-move `x`, untick, in-flight switch, background handler, reset, step during analysis, tracker/engine never concurrent, leaving mode: all pass | Real phone, scripted review | `phone-run2/summary.txt` | 2026-11-15 |
-| Build now on the phone | Optimized normal build with Replay mode, 0 self-test strings; never used by hand | Real phone | `HANDOFF.md` checkpoint 22:18; `CB/perf-integration-2026-11-15/device-normal` | 2026-11-15 |
+| Special-move Replay self-test (earlier phone run, superseded by the 30/30 runs below) | **25/25**, complete, 0 speak requests, exit 0; run ended 23:32 Madrid | Real phone, scripted review | `CB/special-replay-2026-11-15/phone-run1/summary.txt`, `summary.json` | 2026-11-15 |
+| Special-move game checks in that run | 7/7: every ply tracked; game switch mid-game revokes; late engine reply after an occlusion revoke shows nothing; occlusion and missing piece revoke until a renewed review; text advice only at tracked positions; tracker and engine never concurrent | Real phone, scripted review | same `summary.txt` (`special-*` checks) | 2026-11-15 |
+| Timings in that run | Recognition 23–79 ms per picture; Study analysis 1,386–1,880 ms; engine search inside Replay 1,395–2,023 ms; engine start 271–462 ms | Real phone | `phone-run1/selftest-report.json` | 2026-11-15 |
+| Earlier build on the phone (replaced 2026-11-16 about 04:50) | Normal build with both Replay games, verified free of self-test code before install; never used by hand | Real phone | `CB/special-replay-2026-11-15/phone-run1-restore.log`, `device-normal/` | 2026-11-15 |
+| **Pre-started engine and 100,000-node search, Study and Replay with two games (final build `after2`)** | **30/30 self-test checks in 3 of 3 runs**. The earlier build `after` passed 30/30 in 2 of 2. 3 earlier attempts were interrupted by a sleeping screen and are not results (the screen must be on, not only unlocked) | Real phone, scripted review, orchestrator-run | `CB/prewarm-wiring-2026-11-16/phone-run1/`, `phone-run2/`; `docs/PREWARMED_ENGINE.md` | 2026-11-16 |
+| Phone timings, final build | Recognition 27–76 ms; engine start median 0.33–0.37 s; search median 0.15–0.17 s at about 600k nodes/s; 13 of 25 analyses per run used the pre-started engine; 75 analyses, slowest 0.28 s | Real phone | same `phone-run1/`, `phone-run2/` | 2026-11-16 |
+| **Build now on the phone** | Optimized **normal** build from `CB/prewarm-wiring-2026-11-16/after2/device-normal` (sha256 `5ffa41a7…`; the self-test build is `d3596d58…`), pre-started engine, 100,000-node search, no self-test code; installed about 04:50. Nobody has used it by hand | Real phone | `CB/prewarm-wiring-2026-11-16/` | 2026-11-16 |
 
 The background check calls the app's handler in-process; it is not real backgrounding by a
 person. The in-flight switch is event ordering inside the self-test, not finger-driven timing.
@@ -44,6 +59,10 @@ person. The in-flight switch is event ordering inside the self-test, not finger-
 | Replay mode in the Simulator, unoptimized, heavily loaded Mac | 15/18, 17/18, 17/18, 17/18 (all failures were engine deadlines under load) | Simulator, scripted review | `CB/replay-mode-2026-11-15/sim-run1..4-report.json` | 2026-11-15 |
 | Optimized build in the Simulator | 18/18 three times, Mac load average 3.3–9.3 | Simulator, scripted review | `CB/perf-integration-2026-11-15/sim-run1..3-report.json`, `uptime-run1..3.txt` | 2026-11-15 |
 | Mock safety suites | Study 28/28, Replay 21/21, Integration 18/18, ReplayTracker 94/94 | Mock | `CB/perf-integration-2026-11-15/mocks/study-run.txt`, `replay-run.txt`, `integration-run.txt`, `tracker-run.txt` | 2026-11-15 |
+| Special-move Replay in the Simulator | Run 1: 25/25; run 2: 24/25 (an engine-deadline miss under load); special checks 7/7 in both. A third run under load: 21/25, special 6/7 | Simulator, scripted review | `CB/special-replay-2026-11-15/sim-run1..3-report.json`, `uptime-run*.txt` | 2026-11-15 |
+| Mock suites after special-move Replay | Study 28/28, Replay 26/26, Tracker 94/94, Integration 18/18 | Mock | `CB/special-replay-2026-11-15/mocks/*-run.txt` | 2026-11-15 |
+| Same build as the 30/30 phone runs, in the Simulator | **0 of 5 full passes** (27, 25, 27, 28, 28 of 30). About 1 search in 5 runs about 35x slower there and misses the 4.5 s deadline; every miss failed safe (no advice). Not seen on the phone. Open: accept an occasional "no recommendation" or add a warm-up for every engine start | Simulator, scripted review, agent-reported | `CB/prewarm-wiring-2026-11-16/` (sim runs); `orchestrator-state.json` | 2026-11-16 |
+| Mock safety suites, latest | Study 33/33, Replay 31/31, Integration 23/23, ReplayTracker 94/94 (orchestrator-run 02:47; agent-reported unchanged after the follow-up); 37 mutations all caught. Supersedes the 28/28, 26/26, 94/94, 18/18 row above | Mock | `orchestrator-state.json` (`mockSuites`) | 2026-11-16 |
 | Swift tracker vs JavaScript tracker | 28/28 replies deep-equal to the golden transcript | Mac | `CB/replay-tracker-swift-2026-11-15/cross-language.stdout.txt` | 2026-11-15 |
 
 ### Recognition speed fix (missing `-O`)
@@ -60,7 +79,7 @@ person. The in-flight switch is event ordering inside the self-test, not finger-
 | Bundled 14-frame replay game: Swift vs Python recogniser | 15 frames, 960 squares, 0 disagreements; manifest SHA-256 starts `0c2a46b3` | Mac, synthetic | `CB/replay-sequence-2026-11-15/native-conformance.json` | 2026-11-15 |
 | Special-move game (25 plies: en passant, promotion, both castlings) | All 26 positions tracked to the exact expected FEN; 28 frames, 1,792 squares, 0 Swift-vs-Python disagreements; manifest starts `9d1c5fc8` | Mac, synthetic, scripted review | `SPECIAL_GAME_DIR=… node --test tests/special-game-sequence.test.js`; `CB/special-game-2026-11-15/native-conformance.json` | 2026-11-15 |
 
-### Recognition prototypes (separate, not joined, not in the app)
+### Recognition prototypes, single-stage scores (Nov 15; since joined into the pipeline below; none is in the app)
 
 | Claim | Exact number | Evidence type | Command or file that proves it | Date |
 | --- | --- | --- | --- | --- |
@@ -70,31 +89,104 @@ person. The in-flight switch is event ordering inside the self-test, not finger-
 | Occupancy classifier (empty / white / black) | Dev 3,328/3,328 squares; held-out 832/832; challenge 328 correct, 312 abstained, 0 confident errors | Mac, synthetic | `python3 -B tests/occupancy_classifier.py`; `CB/occupancy-classifier-2026-11-15/evaluation-all.txt` | 2026-11-15 |
 | Classifier failure found and fixed after freezing | Frozen v1 made 452 confident errors (23.5%) at blur radius 5; v2 adds a sharpness gate and abstains | Mac, synthetic | `docs/OCCUPANCY_CLASSIFIER.md`; reported in that doc, `CB/occupancy-classifier-2026-11-15/sweep.json` not re-opened | 2026-11-15 |
 | Move inference from perfect occupancy | 159,235 random plies: 99.36% unique and correct, 1,013 ambiguous (all promotion piece choice), 0 wrong; two runs byte-identical (SHA-256 starts `81d1300e`) | Mac, logic only, no images | `node scripts/simulation/occupancy-ambiguity-report.mjs`; `CB/occupancy-2026-11-15/run1.json`, `run2.json` | 2026-11-15 |
-| Move inference with one misread square | 159,235 trials, all `no-legal-explanation`, 0 wrong moves; two misreads not measured | Mac, logic only | `CB/occupancy-2026-11-15/run1.json` (`singleSquareMisread`) | 2026-11-15 |
+| Move inference with one misread square | 159,235 trials, all `no-legal-explanation`, 0 wrong moves (two misreads: see the misread study below) | Mac, logic only | `CB/occupancy-2026-11-15/run1.json` (`singleSquareMisread`) | 2026-11-15 |
+
+### Board-on-a-screen pipeline (corners → square reader → move inference), simulated images only
+
+One run each, frozen settings, run by the orchestrator. "Wrong accepted" = the pipeline advanced
+the game with a wrong move. "Re-review" figures let the scorer use the answer key to decide when a
+simulated person re-checks the position, so they are **optimistic**. Headline numbers now come from
+the "self-aware" mode, where a human is asked only when the pipeline itself knows it is stuck. The two held-out-2 runs score different numbers of positions (v3 accepts more starts).
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Held-out set 1, square reader v2, one picture per position | 0 wrong accepted; starts accepted 7/12; 166/244 pictures correct with re-review (easy 134/135); 29 confident wrong squares of 15,552 | Mac, simulated images only | `CB/pipeline-2026-11-15/pipeline/eval-heldout/report-heldout.json` (no `.log` file found beside it) | 2026-11-15 |
+| Held-out set 2, square reader v2 | 0 wrong accepted; starts 10/12; 3 confident wrong squares of 54,976; re-reviews per 100 positions 14.3 (one picture) and 33.45 (two-picture agreement) | Mac, simulated images only | `CB/pipeline-2026-11-15/pipeline/eval-heldout2-v2/report-heldout2.json`, `eval-heldout2-v2.log` | 2026-11-15 |
+| Held-out set 2, square reader v3 | 0 wrong accepted; starts 11/12; 0 confident wrong squares of 60,736; re-reviews per 100 positions 12.6 and 33.4 | Mac, simulated images only | `CB/pipeline-2026-11-15/pipeline/eval-heldout2-v3/report-heldout2.json`, `eval-heldout2-v3.log` | 2026-11-16 |
+| Wrong single-picture readings stopped by the two-picture rule | 0 in both held-out-2 runs (held-out-1 report predates this counter) | Mac, simulated images only | `guardBlockedWrongInferences` in the two held-out-2 reports | 2026-11-16 |
+| Square reader v3 status | Superseded: the pipeline library now starts on v3 (was v2 with the blur-gate hole); v2 only by name; 31 tests. Orchestrator-run | Mac | `scripts/recognition/screen_pipeline.py`; `docs/SCREEN_PIPELINE.md`; `docs/OCCUPANCY_CLASSIFIER_V3.md` | 2026-11-16 |
+| Square reader v3.1 (sha256 `c634a76d…`, blur-gate edge case closed) | Labels identical to v3 on 97,024 development squares. The held-out scores above were made with v3, not v3.1 | Mac, simulated images only | `orchestrator-state.json` (`frozen`); `docs/OCCUPANCY_CLASSIFIER_V3.md` | 2026-11-16 |
+| Stress pictures, development half (`stressdev`, reader v3) | Accepting from one picture: 5 wrong moves, all from mid-move pictures. Two pictures must agree: 0. Starts accepted 27/36: other piece styles 0/6, lens distortion 1/3, motion blur 2/3. Highlighted squares mostly refused. 11 confident wrong squares, all on mid-move pictures; at least some are an answer-key artefact (worker's reading of the log, not checked square by square). Held-out half `stressheld` untouched. Orchestrator-run | Mac, simulated images only | `docs/SCREEN_BOARD_STRESS.md`, `docs/SCREEN_GAME_SCENES.md`; `CB/pipeline-2026-11-15/` | 2026-11-16 |
+| Square reader v4.3 (flat pieces, last-move highlights) | Frozen (`de58ef04…`, 55 tests) after three independent reviews each rejected the previous freeze (v4.0, v4.1, v4.2). Reserved set `stressheld`, scored once and now spent, 36 games: 0 wrong moves accepted when two pictures must agree, for v3.1 and for v4.3; starting pictures accepted 28/36 (v3.1) and 30/36 (v4.3); re-reviews per 100 positions 20.9 and 26.8. v4.3 is not the default and has not had its own review. See [OCCUPANCY_CLASSIFIER_V4.md](OCCUPANCY_CLASSIFIER_V4.md) | Simulated images, orchestrator-run |
+| Swift port of the square reader (`native/ScreenOccupancy/`) | Identical labels to Python on all four development splits; self-test passes; type-checks for iOS; not in the app | Mac | `native/ScreenOccupancy/README.md`; `CB/screen-occupancy-swift-2026-11-16/` | 2026-11-16 |
+| Corner finder curved-edge check (`native/ScreenBoardVision`) | Finding: the corner finder was NOT what rejected the lens and blur starts; the square reader was. The new check rejects curved boards: on 3,017 development pictures 0 wrong accepted before and after, 39 newly rejected (orchestrator-run). Review of round 2 (`bin-new2`, sha256 `3292bcae…`): ordinary pictures 0 of 100 newly refused, corners identical; first review's 8 attack sets 0 of 653 wrong; but 24 of 422 two-term-lens pictures accepted with corners 5.0–16.6% off (original finder: 277 wrong of 1,006 distorted pictures). An improvement, not a guard; lens undistortion is needed. NOT used by the pipeline | Mac, simulated images only; review attack pictures | `docs/SCREEN_BOARD_STRESS.md`; `CB/corner-finder-2026-11-16/`, `CB/review-corner-finder-2026-11-16/` | 2026-11-16 |
+| Occupancy tracker with promotion question (`src/core/occupancy-tracker.js`, round 6) | 79 tests (78 pass, 1 opt-in skipped). Five reviews; the fifth reviewed round 6 and found no other break. Open hole: (a) one-gap swap, wrong position trusted 72 of 144; (b) a hand puts down a spare or captured piece of the same colour, trusted 22 of 24, with no time limit; (c) the moving piece itself is the swap partner, 5 of 5, not closable by any rule. Reviewer's rule "R2" would close (a) and (b) at 50.6 -> 57.8 re-reviews per 100 positions (hand-over-board row). Not wired in; Alex decides | Mac, pure logic, synthetic errors; orchestrator re-ran the attack scripts | `docs/OCCUPANCY_TRACKER.md`; `CB/review-occupancy-tracker-round5-2026-11-16/` | 2026-11-16 |
+
+### Misread study (logic only, no images)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Moves with a two-misread twin | 85.67% of 39,923 plies have a wrong move that two specific misreads would make inference accept | Mac, logic only | `CB/pipeline-2026-11-15/misread/report.json` (`A_twoMisreadTwins`) | 2026-11-15 |
+| Two-picture agreement rule, 1% square error rate | Wrong share of final moves 1.9e-9 (3.8e-5 per picture without the rule) | Mac, logic only, error model | same report, `C_randomErrorModels`, `G1-two-frame` | 2026-11-15 |
+| Wrong "unchanged" reading, 1% error rate | 1.3e-5 per picture. The rule as built in the scored pipeline (`46ce560`) does not cover it; it is the largest remaining error; effect is a stale position for one more picture, not a wrong position | Mac, logic only, error model | same report (`wrongUnchanged`); `docs/OCCUPANCY_MISREADS.md` | 2026-11-15 |
+
+### Engine budget study (Mac only)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Quality versus node budget | 5k to 200k nodes on 121 positions: same move as an 800k-node reference 75.2% → 88.4%; 19/19 tactics at every budget | Mac, loaded machine; phone timing for a node budget is an estimate | `CB/engine-budget-2026-11-15/ladder.md`; `docs/ENGINE_BUDGET.md` | 2026-11-15 |
+| Quality at 100,000 nodes (the budget now on the phone) | 82% same move as an 800k-node search; 0 of 121 clearly worse | Mac only | `docs/ENGINE_BUDGET.md`; `CB/engine-budget-2026-11-15/ladder.md` | 2026-11-15 |
+| Pre-started engine (`src/core/prewarmed-engine.js`) | 37 tests; the reviewer's warm-up leak is fixed; 121/121 same move as a fresh engine (orchestrator-run). Round 2 timing at 100,000 nodes on a loaded Mac: fresh 1615 ms, pre-started 590 ms (rough). Phone result: see the 30/30 rows | Mac, Node; not WebKit | `docs/PREWARMED_ENGINE.md`; `CB/prewarmed-engine-2026-11-16/` | 2026-11-16 |
+| Start-up cost per analysis on the phone (superseded by the pre-started engine: median 0.33–0.37 s on the final build) | 574–986 ms beyond the 1,000 ms search (median about 707 ms, 6 analyses), 2,463 ms in the one outlier | Real phone (timing), derived | `CB/perf-integration-2026-11-15/phone-run2/summary.json` | 2026-11-15 |
+
+### Mock glasses (Meta Mock Device Kit)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Owner approvals | Given by Alex in chat on 2026-11-15: Meta terms agreed for private testing; work without a Meta account; Simulator-only copy; reuse the SDK already on the Mac | Human decision | `docs/MOCK_DEVICE_KIT_PLAN.md` | 2026-11-15 |
+| Link probe | Compiled and linked ("BUILD OK, binaries were not executed"); nothing ran | Mac | `CB/mock-glasses-2026-11-15/phase1/logs/build_probe.log` | 2026-11-15 |
+| Test videos | Verified, 0 failures (e.g. special-game video 1,680/1,680 frames) | Mac | `CB/mock-glasses-2026-11-15/phase2/reports/verify.log` | 2026-11-15 |
+| First Simulator run of Meta's code (Simulator-only app copy) | Frames flow; every frame that reached the trust decision stayed "age unknown"; no advice, engine run or speech. No network contact observed under a watch proven to catch held connections and name lookups; a connection shorter than about a millisecond would be missed. Phone build byte-identical before and after. Frames keep arriving after the glasses are taken off and after permission is denied mid-stream; frame timestamps restart at zero on every stream | Simulator, mock device, agent-reported with orchestrator spot checks | `docs/MOCK_GLASSES_RUN.md` | 2026-11-16 |
+| Frame-age methods (Phase 5) | None of the three methods rejected 100% of injected stale frames: on-screen code 159/162, clock offset 3224/3407 at best, budget plus watchdog 674/2190. The live trust gate is unchanged. No real latency measured; no network contact, pop-up or account request in 3 of 3 runs. Rule checks 38/38 (orchestrator-run). Method 1's 3 misses came from a harness timing error larger than the 0.05 s margin | Simulator, mock device, agent-reported | `docs/MOCK_GLASSES_FRAME_AGE.md`; `CB/mock-glasses-phase5-2026-11-16/` | 2026-11-16 |
+
+### Evidence inventory (2026-11-16)
+
+| Claim | Exact number | Evidence type | Command or file that proves it | Date |
+| --- | --- | --- | --- | --- |
+| Size of the evidence folder | `CB` holds 31.5 GB in 35 folders; about 9 GB are deletion candidates (app builds and compiler caches) after Alex's OK; nothing deleted. `pipeline-2026-11-15` is still read by scripts and tests | Mac (`du`) | `CB/session-review-2026-11-16/evidence-inventory.md` | 2026-11-16 |
+
+### Independent reviews (2026-11-16)
+
+- App changes: no safety-rule violation found (the reviewer's reading, about 85% confidence). Open
+  items: switching game during a real engine analysis is tested only with a stand-in engine; a
+  possible stuck "Start local engine" button after a switch is unconfirmed.
+- Everything else: no scoring hole found; the document mismatches it listed are fixed here.
+  Orchestrator-reported; review notes not re-opened.
+- Later reviews (2026-11-16, handoff): six adversarial reviews, each found something the workers'
+  own tests missed (occupancy tracker twice, corner finder, reader v4, engine wiring twice at low
+  severity). Their findings are in the rows above; the engine-wiring leftovers (low severity) are
+  `RuntimeGuardChecks.swift` testing the rule and not the real `submit`, `cancelPrewarm` refused
+  while another request is pending, one self-test case accepting a timeout as a pass, and
+  `run-all.sh` not running `RuntimeGuardChecks`.
 
 ### Not verified, or in progress with no results yet
 
 - **No human has used the app by hand.** All phone review is the scripted self-test fixture.
 - No camera, glasses, microphone, Bluetooth or audible-speech result of any kind.
-- No physical-board or camera recognition accuracy; all recognition numbers above are synthetic.
-- The screen-board finder is iOS typecheck only; never run on a phone.
+- No physical-board or camera recognition accuracy; every recognition number above comes from
+  simulated images.
+- The pipeline is not in the app and has never run on a phone.
 - `renew_profile.sh` has never been used for real; the engine-host-died (`onClose`) path has only
   mock evidence.
-- **In progress, no results yet (claim nothing):** joining the three recognition prototypes into
-  one pipeline; two-misread measurement; bundling the special-move game into Replay; engine
-  budget study; Mock Device Kit feasibility note.
+- **No real glasses latency, no real frame age.** The pre-started engine's handling of iOS
+  suspending or killing an idle spare is covered by an idle check and a fallback but untested on a
+  device (`docs/PREWARMED_ENGINE.md`); the Simulator's slow-search tier is unexplained.
+- **Still open, not final:** square reader v4.3 (frozen, `stressheld` spent 2026-11-16; default not decided); corner
+  finder round 2 (not used by the pipeline); occupancy tracker (hole open, not wired in); lens
+  undistortion (not started); motion blur in the square reader (not started).
+- `stressheld` was scored once on 2026-11-16 and is spent, like `heldout` and `heldout2`. No unseen picture set is left.
 
 ---
 
 # Current verification — November 12, 2026
 
 > **Superseded.** Everything from here down is the historical record, kept as written. For the
-> current state see "Current state (2026-11-15)" at the top of this file.
+> current state see "Current state (2026-11-16)" at the top of this file.
 
 ## Actual iPhone installation and opening — November 15, 2026
 
 > Later on November 15 the phone ran the full self-test (18/18) with measured recognition and
-> engine times; see "Current state (2026-11-15)" above.
+> engine times; see "Current state (2026-11-16)" above.
 
 The staged kit completed. Actual iPhone17/iOS27.2 installation is confirmed by device inventory; launch was accepted after user-confirmed developer trust, and Alex confirmed the app opens and stays open. He then closed/swiped it away. Profile/app checks passed 40/40 and signed-product checks 29/29. Exact signed and original unsigned artifacts, separate failed/successful logs and limits are at `/Users/alexmunzon/chess-builds/iphone-2026-11-15/`. See `docs/PHONE_INSTALLATION.md`. Physical-phone recognition/engine UI acceptance and performance are still untested; no glasses or audible-output result is claimed.
 

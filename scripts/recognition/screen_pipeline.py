@@ -57,14 +57,31 @@ POLICY = {
     'AGREE_FRAMES': 2,
     'AGREE_INTERRUPTION': 'skip-unusable',  # or 'reset'; skipped = detector/orientation/unknown squares only (set on dev2)
     'AGREE_MAX_SKIPPED': 2,          # with skip-unusable: at most this many unusable pictures in between
-    'START_PICTURES': 'calibrate-first-passing-then-others-must-read-unchanged',
+    'AGREE_MODE': 'consecutive',     # or 'window': AGREE_FRAMES of any AGREE_WINDOW pictures (measured, not adopted)
+    'AGREE_WINDOW': 3,
+    # "Position confirmed current" (round 3): `unchanged` keeps the FEN from one picture, but a picture reports
+    # currentConfirmed only if it is the picture that confirmed a move by agreement, a reviewed start picture,
+    # or the latest of CURRENT_CONFIRM_FRAMES consecutive `unchanged` readings counted AFTER the last accepted
+    # move / human review (unusable pictures neither count nor break the run; no-legal/ambiguous/move break it).
+    # A moved position misread as unchanged therefore needs that many consecutive misreads to look confirmed.
+    # Downstream advice is fresh only while currentConfirmed is true.
+    'CURRENT_CONFIRM_FRAMES': 'AGREE_FRAMES',
+    # Self-aware review request (round 3): the pipeline asks a human when SELF_REVIEW_AFTER_WITHHELD pictures in a row
+    # were withheld (pending pictures neither count nor break the run), or on SELF_REVIEW_AFTER_NO_LEGAL
+    # no-legal-explanation readings in a row. Set on dev/dev2.
+    'SELF_REVIEW_AFTER_WITHHELD': 3,
+    'SELF_REVIEW_AFTER_NO_LEGAL': 1,
+    # The caller says which pictures belong to the human-reviewed start (start_pictures); the pipeline
+    # calibrates on the first that passes the 4-rotation test, the others must read "unchanged".
+    'START_PICTURES': 'caller-supplied-count; calibrate-first-passing-then-others-must-read-unchanged',
 }
-CLASSIFIERS = {'v2': 'occupancy_classifier', 'v3': 'occupancy_classifier_v3'}
-_CLASSIFIER = {'name': 'v2', 'module': oc}
+CLASSIFIERS = {'v2': 'occupancy_classifier', 'v3': 'occupancy_classifier_v3', 'v4': 'occupancy_classifier_v4'}
+_CLASSIFIER = {'name': None, 'module': None}  # filled by set_classifier(DEFAULT_CLASSIFIER) below
+DEFAULT_CLASSIFIER = 'v3'  # CLI and library default; v2 (blur-gate hole closed only in v3.1) only when asked by name
 
 
 def set_classifier(name):
-    """Pick the square classifier (v2 default, v3 lazily imported). Neither file is ever edited here."""
+    """Pick the square classifier by name (module imported on demand). Neither file is ever edited here."""
     if name not in CLASSIFIERS:
         raise SystemExit(f'unknown classifier {name!r}; choose v2 or v3')
     try:
@@ -79,8 +96,13 @@ def set_classifier(name):
     return module
 
 
+set_classifier(DEFAULT_CLASSIFIER)  # start-up reader is v3, so callers that never pick one get the safe reader
+
+
 def clf():
     return _CLASSIFIER['module']
+
+
 SQUARES_A8H1 = oc.SQUARES                                   # classifier order
 SQUARES_A1H8 = ['abcdefgh'[i % 8] + str(i // 8 + 1) for i in range(64)]  # inferMove order
 SHORT = {'empty': '.', 'white': 'w', 'black': 'b', 'unknown': '?'}
@@ -207,18 +229,37 @@ def order_like_detector(corners):
 
 # ------------------------------------------------------------------ detector ----
 def run_detector(paths, binary=DEFAULT_DETECTOR, chunk=40):
-    """Run the corner binary on image paths (stateless per image; batched to save process starts)."""
+    """Run the corner binary on image paths (stateless per image; batched to save process starts).
+    A crash, a non-zero exit, malformed JSON or a missing answer is recorded as a DETECTOR ERROR
+    (`error: true`, reason detector-error:...), never as "board not found"; a warning is printed."""
     out = {}
     paths = [str(p) for p in paths]
     for i in range(0, len(paths), chunk):
         part = paths[i:i + chunk]
-        proc = subprocess.run([str(binary), *part], capture_output=True, text=True, check=False)
-        for line in proc.stdout.splitlines():
-            if line.strip():
+        try:
+            proc = subprocess.run([str(binary), *part], capture_output=True, text=True, check=False)
+            stdout, code = proc.stdout, proc.returncode
+        except OSError as error:
+            stdout, code = '', f'oserror:{error.__class__.__name__}'
+        got = {}
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+            try:
                 d = json.loads(line)
-                out[d['image']] = d
+                got[d['image']] = d
+            except (ValueError, KeyError, TypeError):
+                code = code or 'malformed-output'
         for p in part:
-            out.setdefault(p, {'found': False, 'reason': f'detector-exit-{proc.returncode}', 'confidence': 0})
+            d = got.get(p)
+            if d is None or code != 0 or d.get('reason') == 'unreadable-image' or \
+                    (d.get('found') and not (isinstance(d.get('corners'), list) and len(d['corners']) == 4)):
+                why = 'unreadable-image' if d is not None and d.get('reason') == 'unreadable-image' else \
+                    ('missing-answer' if d is None else 'malformed-answer')
+                d = {'image': p, 'found': False, 'error': True, 'confidence': 0,
+                     'reason': f'detector-error:{why}:exit={code}'}
+                print(f'WARNING detector error on {p}: {d["reason"]}', file=sys.stderr)
+            out[p] = d
     return out
 
 
@@ -263,7 +304,8 @@ def load_image(path):
 
 
 def _det_summary(det):
-    return {'found': bool(det.get('found')), 'confidence': det.get('confidence', 0), 'reason': det.get('reason'),
+    return {'found': bool(det.get('found')), 'error': bool(det.get('error')), 'confidence': det.get('confidence', 0),
+            'reason': det.get('reason'),
             'ms': round(float(det.get('decodeMs', 0)) + float(det.get('detectMs', 0)), 1),
             'corners': det.get('corners')}
 
@@ -282,7 +324,10 @@ class GameTracker:
         self.reference = None
         self.started = False
         self.start_closed = False  # a later start picture contradicted the start: no further attempts
-        self.pending = None        # agreement guard: {'uci', 'fen', 'fenAfter', 'recs'}
+        self.pending = None        # agreement guard: {'uci', 'fen', 'fenAfter', 'recs', 'skipped', 'span'}
+        self.unchanged_run = 0     # consecutive "unchanged" readings (for currentConfirmed)
+        self.withheld_run = 0      # consecutive withheld pictures (for the self-aware review request)
+        self.no_legal_run = 0
 
     def start(self, index, image, det, decode_ms=0.0):
         """One start picture. Before the start is locked it tries the 4-rotation test; afterwards each
@@ -295,7 +340,8 @@ class GameTracker:
             rec.update(status='start-rejected', cause='start-picture-disagreed-earlier', trackedFen=None)
             return rec
         if not det.get('found'):
-            rec.update(status='start-rejected', cause='detector', trackedFen=None)
+            rec.update(status='start-rejected', cause='detector-error' if det.get('error') else 'detector-not-found',
+                       trackedFen=None)
             return rec
         if callable(image):
             image = image()
@@ -319,12 +365,13 @@ class GameTracker:
         self.rotation, self.calibration, self.reference = ok[0]
         self.fen = self.start_fen
         self.started = True
-        rec.update(status='start-accepted', rotation=self.rotation, trackedFen=self.fen,
+        self.unchanged_run = 0  # the reviewed start picture itself is current (currentConfirmed below)
+        rec.update(status='start-accepted', rotation=self.rotation, trackedFen=self.fen, currentConfirmed=True,
                    startLabel='simulated review')
         return rec
 
     def _confirm_start(self, index, image, det, decode_ms):
-        rec = self.step(index, image, det, decode_ms)
+        rec = self._step(index, image, det, decode_ms)  # no review-request bookkeeping inside the start review
         rec['stage'] = 'start-confirm'
         inferred = (rec.get('inference') or {}).get('status')
         if rec['status'] == 'accepted' and inferred == 'unchanged':
@@ -336,7 +383,9 @@ class GameTracker:
             rec.update(status='start-rejected', cause='start-picture-disagrees', trackedFen=None)
         else:
             rec['startCheck'] = 'unusable'  # detector / orientation / unknown squares: neither for nor against
+        rec['currentConfirmed'] = rec['status'] == 'accepted'
         return rec
+
     def classify_frame(self, key, image, screen_corners, r):
         """Classify the screen-upright panel (detector corner order), then turn labels into a8..h1 order."""
         if key not in self.cache:
@@ -361,7 +410,27 @@ class GameTracker:
         return {'screenLabels': labels, 'reasons': reasons, 'rectifyMs': (t1 - t) * 1000,
                 'classifyMs': (t2 - t1) * 1000}
 
+    @staticmethod
+    def _confirm_frames():
+        n = POLICY['CURRENT_CONFIRM_FRAMES']
+        return POLICY['AGREE_FRAMES'] if n == 'AGREE_FRAMES' else int(n)
+
     def step(self, index, image, det, decode_ms=0.0, cache_key=None):
+        rec = self._step(index, image, det, decode_ms, cache_key)
+        if rec['status'] != 'pending':  # pending pictures neither count nor break the withheld run
+            self.withheld_run = self.withheld_run + 1 if rec['status'] == 'withheld' else 0
+        nl = (rec.get('inference') or {}).get('status') == 'no-legal-explanation'
+        self.no_legal_run = self.no_legal_run + 1 if nl else 0
+        rec['currentConfirmed'] = bool(rec['status'] == 'accepted' and (
+            rec.get('acceptedMove') or self.unchanged_run >= self._confirm_frames()))
+        if self.started and rec['stage'] != 'start-confirm' and (
+                self.withheld_run >= POLICY['SELF_REVIEW_AFTER_WITHHELD']
+                or self.no_legal_run >= POLICY['SELF_REVIEW_AFTER_NO_LEGAL']):
+            rec['reviewRequested'] = 'no-legal-explanation' if nl and \
+                self.no_legal_run >= POLICY['SELF_REVIEW_AFTER_NO_LEGAL'] else f'{self.withheld_run}-withheld-in-a-row'
+        return rec
+
+    def _step(self, index, image, det, decode_ms=0.0, cache_key=None):
         rec = {'index': index, 'stage': 'frame', 'detector': _det_summary(det), 'trackedFenBefore': self.fen,
                'timingsMs': {'decode': round(decode_ms, 1)}}
         rec['timingsMs']['detect'] = rec['detector']['ms']
@@ -370,16 +439,13 @@ class GameTracker:
             return rec
         if not det.get('found'):
             self._unusable_picture()
-            rec.update(status='withheld', cause='detector', trackedFen=self.fen)
+            rec.update(status='withheld', cause='detector-error' if det.get('error') else 'detector-not-found',
+                       trackedFen=self.fen)
             return rec
         r, info = choose_rotation(det['corners'], self.reference)
         rec['rotationCheck'] = info
-        if r is None:
-            self._unusable_picture()
-            rec.update(status='withheld', cause='orientation', trackedFen=self.fen)
-            return rec
         rec['rotation'] = r
-        if r != self.rotation:  # the screen turned relative to the locked start orientation
+        if r is None or r != self.rotation:  # no clear rotation, or the screen turned vs the locked start
             self._unusable_picture()
             rec.update(status='withheld', cause='orientation', trackedFen=self.fen)
             return rec
@@ -395,15 +461,22 @@ class GameTracker:
         rec['inference'] = {k: v for k, v in res.items() if k in ('status', 'cause', 'unknownSquares')}
         if res['status'] == 'ambiguous':
             rec['inference']['candidates'] = [c['uci'] for c in res['candidates']]
+        window = POLICY['AGREE_MODE'] == 'window'
+        if self.pending is not None:
+            self.pending['span'] += 1  # pictures seen since the pending move's first reading (window mode)
+            if window and self.pending['span'] > POLICY['AGREE_WINDOW']:
+                self._drop_pending()
         if res['status'] == 'move':
             uci = res['move']['uci']
             rec.update(inferredMove=uci, inferredFen=res['fenAfter'])
+            self.unchanged_run = 0
             p = self.pending
             if p is not None and p['uci'] == uci and p['fen'] == self.fen:
                 p['recs'].append(rec)
             else:
                 self._drop_pending()
-                p = self.pending = {'uci': uci, 'fen': self.fen, 'fenAfter': res['fenAfter'], 'recs': [rec]}
+                p = self.pending = {'uci': uci, 'fen': self.fen, 'fenAfter': res['fenAfter'], 'recs': [rec],
+                                    'skipped': 0, 'span': 1}
             rec['agreeCount'] = len(p['recs'])
             if len(p['recs']) >= POLICY['AGREE_FRAMES']:
                 for earlier in p['recs']:
@@ -412,19 +485,22 @@ class GameTracker:
                 rec['acceptedMove'] = uci
                 self.fen = p['fenAfter']
                 self.reference = corners
+                self.unchanged_run = 0  # this picture is confirmed current (agreement); later unchanged runs restart
                 rec.update(status='accepted')
             else:
                 rec['guard'] = 'waiting'
                 rec.update(status='pending', cause='awaiting-agreement')
         elif res['status'] == 'unchanged':
             self._drop_pending()
+            self.unchanged_run += 1
             self.reference = corners
             rec.update(status='accepted')
         else:
-            if res['status'] == 'uncertain':  # unknown squares: the picture says nothing either way
-                self._unusable_picture()
+            if res['status'] == 'uncertain' or (window and res['status'] in ('no-legal-explanation', 'ambiguous')):
+                self._unusable_picture()  # says nothing either way (window mode: misreads are not conflicts)
             else:  # no-legal-explanation / ambiguous: the picture disagrees with the pending move
                 self._drop_pending()
+                self.unchanged_run = 0
             rec.update(status='withheld', cause={'uncertain': 'classifier-unknowns', 'ambiguous': 'ambiguous-promotion'
                                                  if res.get('cause') == 'promotion-piece-choice' else 'ambiguous-other',
                                                  'no-legal-explanation': 'no-legal-explanation'}[res['status']])
@@ -432,16 +508,18 @@ class GameTracker:
         return rec
 
     def _unusable_picture(self):
-        """Detector miss, orientation refusal or unknown squares while a move waits for agreement.
+        """Detector miss/error, orientation refusal or unknown squares while a move waits for agreement.
         'reset' drops the pending move; 'skip-unusable' keeps it for at most AGREE_MAX_SKIPPED such
-        pictures. Skipping is safe: confirmation still needs another picture inferring the SAME move
-        from the SAME tracked FEN, and a picture of any other position reads another move,
-        unchanged or no-legal-explanation, all of which reset."""
+        pictures ('window' mode: until AGREE_WINDOW pictures have passed). Skipping is safe: confirmation
+        still needs another picture inferring the SAME move from the SAME tracked FEN, and a usable
+        picture of any other position reads another move, unchanged or no-legal-explanation."""
         p = self.pending
         if p is None:
             return
-        if POLICY['AGREE_INTERRUPTION'] == 'skip-unusable' and p.get('skipped', 0) < POLICY['AGREE_MAX_SKIPPED']:
-            p['skipped'] = p.get('skipped', 0) + 1
+        if POLICY['AGREE_MODE'] == 'window':
+            return  # bounded by the window span check in _step
+        if POLICY['AGREE_INTERRUPTION'] == 'skip-unusable' and p['skipped'] < POLICY['AGREE_MAX_SKIPPED']:
+            p['skipped'] += 1
         else:
             self._drop_pending()
 
@@ -459,35 +537,29 @@ class GameTracker:
         """Simulated human re-review: the human confirms the position (and the board's corners if visible)."""
         self._drop_pending()
         self.fen = fen
+        self.unchanged_run = 0
+        self.withheld_run = self.no_legal_run = 0
         if corners is not None:
             self.reference = corners
-
-
-def position_of(frame):
-    """Position number of a picture: `positionIndex` in multi-picture roots, else the frame index."""
-    return frame.get('positionIndex', frame['index'])
-
-
-def is_start_picture(frame):
-    return position_of(frame) == 0
 
 
 def load_games(scenes):
     return json.loads((Path(scenes) / 'truth/games.json').read_text())
 
 
-def run_game(scenes, game, out=None, binary=DEFAULT_DETECTOR):
-    """Strict single pass (no re-review). Uses truth only for game['startFen']."""
+def run_game(scenes, game, out=None, binary=DEFAULT_DETECTOR, start_pictures=1):
+    """Strict single pass (no re-review). Uses only game['startFen'], the picture files in order and
+    `start_pictures` (how many leading pictures the human reviewed as the start, supplied by the caller)."""
     scenes = Path(scenes)
     paths = [scenes / f['file'] for f in game['frames']]
     dets = run_detector(paths, binary)
     trace = []
     with InferBridge() as bridge:
         tracker = GameTracker(game['startFen'], bridge)
-        for f, p in zip(game['frames'], paths):
+        for n, (f, p) in enumerate(zip(game['frames'], paths)):
             img, dms = load_image(p)
             det = dets[str(p)]
-            rec = (tracker.start(f['index'], img, det, dms) if is_start_picture(f)
+            rec = (tracker.start(f['index'], img, det, dms) if n < start_pictures
                    else tracker.step(f['index'], img, det, dms))
             rec['file'] = f['file']
             trace.append(rec)
@@ -506,13 +578,15 @@ def main():
     ap.add_argument('--game', required=True)
     ap.add_argument('--out', required=True, type=Path)
     ap.add_argument('--detector', type=Path, default=DEFAULT_DETECTOR)
-    ap.add_argument('--classifier', default='v2', choices=sorted(CLASSIFIERS))
+    ap.add_argument('--classifier', default=DEFAULT_CLASSIFIER, choices=sorted(CLASSIFIERS))
+    ap.add_argument('--start-pictures', type=int, default=1,
+                    help='how many leading pictures the human reviewed as the start position (default 1)')
     ap.add_argument('--agree', type=int, default=POLICY['AGREE_FRAMES'])
     a = ap.parse_args()
     set_classifier(a.classifier)
     POLICY['AGREE_FRAMES'] = a.agree
     games = {g['id']: g for g in load_games(a.scenes)['games']}
-    doc = run_game(a.scenes, games[a.game], a.out, a.detector)
+    doc = run_game(a.scenes, games[a.game], a.out, a.detector, a.start_pictures)
     counts = {}
     for r in doc['frames']:
         key = r['status'] + ('/' + r['cause'] if r.get('cause') else '')

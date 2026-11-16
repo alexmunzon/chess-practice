@@ -58,6 +58,19 @@ wrong moves per 80-ply game, about one corrupted game in 18.
 - Redundant: "changed squares must equal the move's squares" is already implied, because
   inferMove accepts only an exact full-board match of one hypothesis.
 
+## Wrong "unchanged" is not covered by the pipeline's two-picture rule
+The two-picture agreement rule as implemented in the pipeline at checkpoint `46ce560`
+(`scripts/recognition/screen_pipeline.py`, `--agree 2`, the version scored on the held-out sets)
+requires two agreeing pictures before accepting a MOVE; a single reading of "nothing moved" is not
+held to that rule. (An uncommitted pipeline fix in progress adds a "confirmed current" flag after
+repeated "unchanged" readings; not yet scored.) Under the rule it is therefore the largest remaining error: at
+p=0.01 (label-only) a wrong "unchanged" happens on about 1.3e-5 of pictures (exact 1.339e-5,
+Monte Carlo 28 of 1,996,150), while wrong moves fall to 1.9e-9 of final moves (G1; per two-picture
+attempt 5.1e-10). Note the units differ: per picture versus per final move. Its effect is a stale
+position for one more picture (the move is picked up when the next picture is read), not a wrong
+position. Source: `report.json`, `C_randomErrorModels` (p=0.01, q=0: `singleFrame.exactExpected`
+and `guards.G1-two-frame`).
+
 ## Recommendation
 Adopt G1 (two independent readings must give the same move; G2 if frames are cheap). It costs
 nothing on clean readings and cuts wrong moves by 4 to 5 orders of magnitude, at the price of

@@ -51,13 +51,13 @@ private actor MockPixels: OfflineImageRecognizer {
     func start() async throws { starts += 1; if holdStart { try await withCheckedThrowingContinuation { starting = $0 } } }
     func validate(_ fen: String) async throws -> ValidatedPosition {
         validations += 1
-        if holdValidation { return try await withCheckedThrowingContinuation { validating = $0 } }
+        if holdValidation { noteHold(); return try await withCheckedThrowingContinuation { validating = $0 } }
         return ValidatedPosition(fen: foreignFEN ? fen.replacingOccurrences(of: " w ", with: " b ") : fen, terminal: terminal)
     }
     func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
         analyses += 1; self.request = request
         defer { analysisReturns += 1 }
-        if holdAnalysis { return try await withCheckedThrowingContinuation { analyzing = $0 } }
+        if holdAnalysis { noteHold(); return try await withCheckedThrowingContinuation { analyzing = $0 } }
         return reply()
     }
     func reply() -> NativeEngineResult {
@@ -69,11 +69,42 @@ private actor MockPixels: OfflineImageRecognizer {
     }
     func speech(fen: String, move: String) async throws -> String {
         speechChecks += 1
-        if holdSpeech { return try await withCheckedThrowingContinuation { speaking = $0 } }
+        if holdSpeech { noteHold(); return try await withCheckedThrowingContinuation { speaking = $0 } }
         return "pawn from e2 to e4."
     }
-    func cancel() { cancellations += 1 }
-    func close() { closes += 1 }
+    func cancel() { cancellations += 1; cancelledSinceHold = true }
+    func close() { closes += 1; calls.append("close") }
+    // Pre-started engine stand-in (2026-11-16). A prewarm can be held; releasing it may "leak" a
+    // warm-up result into a held analysis (a reply bound to another position), as a worst case.
+    var prewarms = 0, prewarmCancels = 0, prewarmCallsWhileLive = 0
+    var holdPrewarm = false, prewarmFails = false
+    var heldPrewarms: [CheckedContinuation<Void, Error>] = []
+    var calls: [String] = []
+    /// A held validation/analysis/text request that the model has not cancelled since it started.
+    private var cancelledSinceHold = true
+    var live: Bool { (validating != nil || analyzing != nil || speaking != nil) && !cancelledSinceHold }
+    func noteHold() { cancelledSinceHold = false }
+    func prewarm() async throws {
+        prewarms += 1; calls.append("prewarm"); if live { prewarmCallsWhileLive += 1 }
+        if prewarmFails { throw OfflineStudyError.missingResource }
+        if holdPrewarm { try await withCheckedThrowingContinuation { heldPrewarms.append($0) } }
+    }
+    func cancelPrewarm() async throws {
+        prewarmCancels += 1; calls.append("cancelPrewarm"); if live { prewarmCallsWhileLive += 1 }
+        if prewarmFails { throw OfflineStudyError.missingResource }
+    }
+    /// Completes every held prewarm. With `leak`, the held analysis is answered with a warm-up result:
+    /// same request ID, but bound to another position (the warm-up FEN).
+    func releasePrewarms(leak: Bool = false) {
+        let held = heldPrewarms; heldPrewarms = []
+        for continuation in held { continuation.resume() }
+        if leak, let input = request, let pending = analyzing {
+            analyzing = nil
+            let warmup = AnalysisRequest(id: input.id, frame: input.frame, revision: input.revision,
+                                         fen: "r1bq1rk1/pp3ppp/2np4/4N3/1PBQ4/P1P2RK1/8/8 w - - 0 1", movetimeMilliseconds: input.movetimeMilliseconds)
+            pending.resume(returning: NativeEngineResult(request: warmup, moveUCI: "e2e4"))
+        }
+    }
 }
 @MainActor private struct Rig {
     let backend = MockBackend(), pixels = MockPixels(), speech = MockSpeech()
@@ -215,6 +246,7 @@ private func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
             model.reset(); try check(!model.ready && replacement.closes == 1, "Reset closes owned runtime")
             passed += 1
             passed += try await newChecks()
+            passed += try await prewarmChecks()
             print("Offline study mock lifecycle checks: \(passed)/\(passed) passed; no WebKit, recognition inference, device or audio execution.")
         } catch { print("FAILED: \(error)"); exit(1) }
     }
@@ -368,5 +400,119 @@ private let blackToMoveFEN = startingFEN.replacingOccurrences(of: " w ", with: "
     try check(sample.model.checks.isEmpty && sample.model.fen == startingFEN && !sample.model.canValidate,
               "Loading the sample FEN must clear existing ticks")
     passed += 1
+    return passed
+}
+
+/// Pre-started engine cases added 2026-11-16 (held-back stand-in replies). Each returns only after its assertions pass.
+@MainActor private func prewarmChecks() async throws -> Int {
+    var passed = 0, whileLive = 0
+    // P1: a prewarm is requested when the review screen opens (complete board, engine ready), when the
+    // review becomes complete and after validation; never before the engine runs or for an uncertain board.
+    do {
+        let rig = Rig()
+        rig.model.start(); try await idle(rig.model); await settle()
+        try check(rig.backend.prewarms == 0, "P1: no prewarm before a board is read")
+        rig.model.recognizeFixture(); try await idle(rig.model); await settle()
+        try check(rig.backend.prewarms == 1, "P1: prewarm when the review screen opens")
+        rig.model.editFEN(startingFEN)
+        for field in ReviewField.allCases { rig.model.setReview(field, checked: true) }
+        await settle()
+        try check(rig.backend.prewarms == 2, "P1: prewarm again when all five boxes are ticked")
+        rig.model.validate(); try await idle(rig.model); await settle()
+        try check(rig.backend.prewarms == 3 && rig.model.reviewed, "P1: prewarm after a successful validation")
+        let uncertain = Rig(); await uncertain.pixels.configure(unknown: true)
+        for field in ReviewField.allCases { uncertain.model.setReview(field, checked: true) }
+        uncertain.model.start(); try await idle(uncertain.model)
+        uncertain.model.recognizeFixture(); try await idle(uncertain.model)
+        uncertain.model.editFEN(startingFEN)
+        for field in ReviewField.allCases { uncertain.model.setReview(field, checked: true) }
+        await settle()
+        try check(uncertain.backend.prewarms == 0, "P1: no prewarm for an uncertain board or before the engine runs")
+        whileLive += rig.backend.prewarmCallsWhileLive + uncertain.backend.prewarmCallsWhileLive
+        passed += 1
+    }
+    // P2: a prewarm still in flight when the user confirms and analyzes. Releasing it changes nothing;
+    // advice comes only from the analysis of the confirmed position. A warm-up result leaking into the
+    // analysis channel (bound to the warm-up position) is rejected: no recommendation, no legal-text request.
+    do {
+        let rig = Rig(); rig.backend.holdPrewarm = true
+        try await rig.reviewed(); await settle()
+        try check(!rig.backend.heldPrewarms.isEmpty, "P2: a prewarm is in flight at confirmation")
+        rig.backend.holdAnalysis = true
+        rig.model.analyze(); try await until { rig.backend.analyzing != nil }
+        let before = Snapshot(rig.model)
+        rig.backend.releasePrewarms(); await settle()
+        try check(Snapshot(rig.model) == before && rig.model.recommendation == nil, "P2: a prewarm completing changes nothing visible")
+        rig.backend.analyzing?.resume(returning: rig.backend.reply()); rig.backend.analyzing = nil
+        try await idle(rig.model)
+        try check(rig.model.recommendation == "pawn from e2 to e4." && rig.backend.request?.fen == startingFEN && rig.model.reviewed,
+                  "P2: advice for the confirmed position only")
+
+        let leak = Rig(); leak.backend.holdPrewarm = true
+        try await leak.reviewed(); await settle()
+        leak.backend.holdAnalysis = true
+        leak.model.analyze(); try await until { leak.backend.analyzing != nil }
+        leak.backend.releasePrewarms(leak: true); try await idle(leak.model); await settle()
+        try check(leak.model.recommendation == nil && leak.model.move == nil && !leak.model.canSpeak && leak.backend.speechChecks == 0 &&
+                  leak.model.status.hasPrefix("Analysis failed"), "P2: a warm-up result is never shown as a recommendation")
+        whileLive += rig.backend.prewarmCallsWhileLive + leak.backend.prewarmCallsWhileLive
+        passed += 1
+    }
+    // P3: un-ticking the review, switching position, reset and backgrounding each cancel the prewarm
+    // (reset and background also close the runtime) and a held analysis reply released later shows nothing.
+    let leavers: [(String, Bool, @MainActor (OfflineStudyModel) -> Void)] = [
+        ("review untick", false, { $0.setReview(.turn, checked: false) }),
+        ("position switch", false, { $0.selectFixture(.afterE4) }),
+        ("reset", true, { $0.reset() }),
+        ("background", true, { $0.setActive(false) }),
+    ]
+    for (name, closes, leave) in leavers {
+        let rig = Rig(); rig.backend.holdPrewarm = true
+        try await rig.reviewed(); await settle()
+        rig.backend.holdAnalysis = true
+        rig.model.analyze(); try await until { rig.backend.analyzing != nil }
+        let cancelsBefore = rig.backend.prewarmCancels
+        leave(rig.model); await settle()
+        try check(rig.backend.prewarmCancels == cancelsBefore + 1, "P3: \(name) must cancel the prewarm")
+        try check(rig.backend.closes == (closes ? 1 : 0), "P3: \(name) closes the runtime only for reset/background")
+        try await frozen(rig.model, "P3: late replies after \(name)") {
+            rig.backend.releasePrewarms()
+            rig.backend.analyzing?.resume(returning: rig.backend.reply()); rig.backend.analyzing = nil
+        }
+        try check(rig.backend.speechChecks == 0 && rig.model.recommendation == nil, "P3: nothing shown after \(name)")
+        whileLive += rig.backend.prewarmCallsWhileLive
+    }
+    passed += 1
+    // P4: a failing prewarm is invisible: the same flow shows exactly what it shows without any prewarm failure.
+    do {
+        let failing = Rig(), normal = Rig(); failing.backend.prewarmFails = true
+        for rig in [failing, normal] {
+            try await rig.reviewed(); await settle(); rig.model.analyze(); try await idle(rig.model); await settle()
+        }
+        try check(failing.backend.prewarms > 0 && Snapshot(failing.model) == Snapshot(normal.model) &&
+                  failing.model.recommendation == "pawn from e2 to e4.", "P4: prewarm failure falls back to normal analysis, invisibly")
+        failing.model.setReview(.pieces, checked: false); normal.model.setReview(.pieces, checked: false); await settle()
+        try check(Snapshot(failing.model) == Snapshot(normal.model), "P4: a failing cancel is invisible too")
+        passed += 1
+    }
+    // P5: the model asks for (or cancels) a spare only when none of its own requests is live, so a
+    // prewarm can never cancel the user's analysis (the runtime runs one request at a time) and never
+    // makes a second engine run beside an analysis.
+    do {
+        let rig = Rig(); try await rig.reviewed(); await settle()
+        rig.backend.holdAnalysis = true
+        rig.model.analyze(); try await until { rig.backend.analyzing != nil }
+        await settle()
+        let duringAnalysis = rig.backend.prewarmCallsWhileLive
+        rig.backend.analyzing?.resume(returning: rig.backend.reply()); rig.backend.analyzing = nil; try await idle(rig.model)
+        rig.backend.holdValidation = true
+        rig.model.setReview(.turn, checked: false); rig.model.setReview(.turn, checked: true)
+        rig.model.validate(); try await until { rig.backend.validating != nil }; await settle()
+        rig.backend.validating?.resume(returning: ValidatedPosition(fen: startingFEN, terminal: false)); rig.backend.validating = nil
+        try await idle(rig.model); await settle()
+        whileLive += rig.backend.prewarmCallsWhileLive
+        try check(duringAnalysis == 0 && whileLive == 0, "P5: \(whileLive) prewarm requests were sent while a request was live")
+        passed += 1
+    }
     return passed
 }

@@ -44,9 +44,12 @@ private func fixtureRequest(sequence: UInt64 = 1, epoch: UInt64 = 1, revision: U
     var pending: [UUID: CheckedContinuation<String, Error>] = [:]
     var automatic = true
     var mutation: ((inout [String: Any]) -> Void)?
+    /// Kinds whose submission fails like a transport error (prewarm failure checks).
+    var failingKinds: Set<String> = []
     func submit(commandJSON: String, operation: UUID, timeoutMilliseconds: Int) async throws -> String {
         let command = try JSONContract.object(commandJSON)
         calls.append(Call(operation: operation, command: command, timeout: timeoutMilliseconds))
+        if let kind = command["kind"] as? String, failingKinds.contains(kind) { throw IntegrationFailure.cancelled }
         if automatic { return try reply(command) }
         // Deliberately ignores cancellation: an old callback may settle after a replacement.
         return try await withCheckedThrowingContinuation { pending[operation] = $0 }
@@ -69,6 +72,8 @@ private func fixtureRequest(sequence: UInt64 = 1, epoch: UInt64 = 1, revision: U
             reply["identity"] = command["identity"]!; reply["fen"] = command["fen"]!
             reply["bestMove"] = ["from": "e2", "to": "e4", "san": "e4"]
             reply["speechText"] = "pawn from e2 to e4."; reply["status"] = "playing"
+        case "prewarm": reply["spare"] = "starting"
+        case "cancelPrewarm": reply["cancelled"] = true
         default: throw CheckFailure(message: "Unexpected mock command")
         }
         mutation?(&reply)
@@ -356,6 +361,106 @@ private let fullReview = ReplayHumanReview(pieces: true, turn: true, castling: t
     }
 }
 
+// Pre-started engine wiring (2026-11-16): node budget, search facts, prewarm requests.
+private var validSearch: [String: Any] { ["nodes": 100_412, "nps": 351_000, "elapsedMs": 286.0, "spareUsed": true,
+                                          "startup": "spare", "startupMs": 12.4, "fallbackReason": NSNull()] }
+extension Checks {
+    func nodeBudgetSentAndRangeGuarded() async throws {
+        let transport = MockTransport(), adapters = LocalChessAdapters(transport: transport), request = fixtureRequest()
+        let result = try await adapters.analyze(request, budget: .nodes(100_000))
+        try require(result.request == request && result.moveUCI == "e2e4")
+        let command = transport.calls.last!.command
+        try require(JSONContract.unsigned(command["nodes"]) == 100_000 && command["movetimeMs"] == nil &&
+                    Set(command.keys) == ["schemaVersion", "requestId", "kind", "fen", "confirmation", "identity", "nodes"], "exactly one limit: nodes")
+        _ = try await adapters.analyze(request) // the request's own movetime, unchanged
+        try require(JSONContract.unsigned(transport.calls.last!.command["movetimeMs"]) == 100 && transport.calls.last!.command["nodes"] == nil)
+        for budget in [SearchBudget.nodes(1_000), .nodes(2_000_000), .movetime(milliseconds: 50), .movetime(milliseconds: 3000)] {
+            _ = try await adapters.analyze(request, budget: budget)
+        }
+        let sent = transport.calls.count
+        for budget in [SearchBudget.nodes(999), .nodes(2_000_001), .nodes(0), .nodes(-1), .movetime(milliseconds: 49), .movetime(milliseconds: 3001)] {
+            try await rejectsAsync { try await adapters.analyze(request, budget: budget) }
+        }
+        try require(transport.calls.count == sent, "out-of-range budgets never reach the runtime")
+    }
+    func searchReportExactAndOptional() async throws {
+        let transport = MockTransport(), adapters = LocalChessAdapters(transport: transport), request = fixtureRequest()
+        _ = try await adapters.analyze(request, budget: .nodes(100_000))
+        try require(adapters.lastSearch?.request == request.id && adapters.lastSearch?.report == nil, "a recorded older reply without search facts is accepted")
+        transport.mutation = { $0["search"] = validSearch }
+        _ = try await adapters.analyze(request, budget: .nodes(100_000))
+        let report = adapters.lastSearch?.report
+        try require(adapters.lastSearch?.request == request.id && report?.nodes == 100_412 && report?.nodesPerSecond == 351_000 &&
+                    report?.spareUsed == true && report?.startup == "spare" && report?.startupMilliseconds == 12.4 && report?.fallbackReason == nil)
+        let broken: [(String, (inout [String: Any]) -> Void)] = [
+            ("extra search key", { $0["bestMove"] = "e2e4" }), ("missing key", { $0.removeValue(forKey: "nps") }),
+            ("text count", { $0["nodes"] = "100412" }), ("negative time", { $0["elapsedMs"] = -1 }),
+            ("unknown startup", { $0["startup"] = "warm" }), ("spare claimed on a fresh start", { $0["startup"] = "fresh" }),
+            ("non-boolean spare", { $0["spareUsed"] = 1 }), ("free-text reason", { $0["fallbackReason"] = "Spare failed!" }),
+        ]
+        for (name, edit) in broken {
+            var search = validSearch; edit(&search)
+            transport.mutation = { $0["search"] = search }
+            do { _ = try await adapters.analyze(request, budget: .nodes(100_000)); throw CheckFailure(message: "accepted: \(name)") }
+            catch is CheckFailure { throw CheckFailure(message: "accepted: \(name)") } catch {}
+        }
+        transport.mutation = { $0["search"] = validSearch; $0["warmup"] = ["bestMove": "d2d4"] }
+        try await rejectsAsync { try await adapters.analyze(request, budget: .nodes(100_000)) }
+    }
+    func prewarmReplyNeverAdvice() async throws {
+        let transport = MockTransport(), adapters = LocalChessAdapters(transport: transport), request = fixtureRequest()
+        // A prewarm-shaped reply answering an analysis is rejected.
+        transport.mutation = { reply in
+            if reply["kind"] as? String == "analyze" {
+                reply = ["schemaVersion": 1, "requestId": reply["requestId"]!, "kind": "prewarm", "runtime": "on-device-local", "spare": "ready"]
+            }
+        }
+        try await rejectsAsync { try await adapters.analyze(request, budget: .nodes(100_000)) }
+        // A prewarm reply carrying a position, move or text is rejected, never a result.
+        for extra in [["bestMove": ["from": "e2", "to": "e4", "san": "e4"]], ["speechText": "pawn from e2 to e4."], ["fen": fen]] as [[String: Any]] {
+            transport.mutation = { reply in for (key, value) in extra { reply[key] = value } }
+            try await rejectsAsync { try await adapters.prewarm() }
+        }
+        transport.mutation = { $0["spare"] = "bestmove e2e4" }
+        try await rejectsAsync { try await adapters.prewarm() }
+        transport.mutation = nil
+        let spare = try await adapters.prewarm(), cancelled = try await adapters.cancelPrewarm()
+        try require(spare == "starting" && cancelled)
+        // Held prewarm in flight when the user confirms: the analysis supersedes it; the late prewarm
+        // reply settles nothing; the analysis reply binds to the analysis request only.
+        transport.automatic = false
+        let prewarm = Task { @MainActor in try await adapters.prewarm() }; await settle()
+        let prewarmOperation = transport.calls.last!.operation
+        let analysis = Task { @MainActor in try await adapters.analyze(request, budget: .nodes(100_000)) }; await settle()
+        let analysisOperation = transport.calls.last!.operation
+        try require(transport.cancelled.contains(prewarmOperation) && transport.calls.last!.command["kind"] as? String == "analyze")
+        try transport.finish(prewarmOperation); await settle()
+        try await rejectsAsync { try await prewarm.value }
+        transport.mutation = { $0["search"] = validSearch }
+        try transport.finish(analysisOperation)
+        let result = try await analysis.value
+        try require(result.request == request && result.moveUCI == "e2e4" && adapters.lastSearch?.request == request.id)
+    }
+    func prewarmNeverSupersedesARealRequest() async throws {
+        let transport = MockTransport(), adapters = LocalChessAdapters(transport: transport)
+        transport.automatic = false
+        let validation = Task { @MainActor in try await adapters.validatePosition(fen) }; await settle()
+        let spare = try await adapters.prewarm(), cancelled = try await adapters.cancelPrewarm()
+        try require(spare == nil && !cancelled)
+        try require(transport.calls.count == 1 && transport.cancelled.isEmpty, "nothing sent, nothing cancelled")
+        try transport.finish(transport.calls[0].operation)
+        try require(try await validation.value.fen == fen)
+    }
+    func prewarmFailureLeavesAnalysisWorking() async throws {
+        let transport = MockTransport(), adapters = LocalChessAdapters(transport: transport), request = fixtureRequest()
+        transport.failingKinds = ["prewarm", "cancelPrewarm"]
+        try await rejectsAsync { try await adapters.prewarm() }
+        try await rejectsAsync { try await adapters.cancelPrewarm() }
+        let result = try await adapters.analyze(request, budget: .nodes(100_000))
+        try require(result.request == request && result.moveUCI == "e2e4" && transport.calls.last!.command["kind"] as? String == "analyze")
+    }
+}
+
 @main @MainActor struct IntegrationCheckRunner {
     static func main() async {
         let suite = Checks()
@@ -377,7 +482,12 @@ private let fullReview = ReplayHumanReview(pieces: true, turn: true, castling: t
             ("replay adapter: foreign or error reply revokes", suite.replayAdapterForeignReplyRevokes),
             ("replay adapter: transport failure revokes", suite.replayAdapterFailureRevokes),
             ("replay adapter: cancellation is operation-scoped", suite.replayAdapterCancellationIsOperationScoped),
-            ("replay adapter over concrete runtime wrapper", suite.replayAdapterOverConcreteWrapper)
+            ("replay adapter over concrete runtime wrapper", suite.replayAdapterOverConcreteWrapper),
+            ("prewarm: node budget sent, both limits range-guarded", suite.nodeBudgetSentAndRangeGuarded),
+            ("prewarm: search facts exact when present, optional for older replies", suite.searchReportExactAndOptional),
+            ("prewarm: a prewarm or warm-up reply never becomes advice; held prewarm superseded by the confirmed analysis", suite.prewarmReplyNeverAdvice),
+            ("prewarm: never supersedes a real request in flight", suite.prewarmNeverSupersedesARealRequest),
+            ("prewarm: failure leaves normal analysis working", suite.prewarmFailureLeavesAnalysisWorking)
         ]
         var failures = 0
         for (name, test) in tests {

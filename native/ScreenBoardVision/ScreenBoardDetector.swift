@@ -25,6 +25,10 @@ struct DetectorParameters {
     var minCheckerContrast: Double = 8   // gray levels
     var refineSigma: Float = 1.0
     var minConfidence: Double = 0.55
+    /// Curved-edge self-check: the outer corners from the straight-line (homography) fit and from a
+    /// fit with one radial (barrel/pincushion) lens term may differ by at most this share of the
+    /// board side. Set a priori to half the 5 % wrong-corner line, not tuned on pictures.
+    var maxCurveShiftFraction: Double = 0.025
 }
 
 struct Detection {
@@ -39,6 +43,10 @@ struct Detection {
     var ringRatio = 0.0
     var placementMargin = -1.0
     var fitRMS = -1.0
+    var lensK1 = 0.0          // radial term of the best lens fit (r normalized by the image half-diagonal)
+    var curveShift = -1.0     // largest outer-corner disagreement, straight vs lens fit, share of board side
+    var lensK2 = 0.0          // second radial term of the lens fit (r^4)
+    var lensCentre = (-1.0, -1.0)  // fitted lens centre, image pixels
 }
 
 private struct XCorner { var x: Double; var y: Double; var r: Float; var zr: Float; var zi: Float }
@@ -128,6 +136,19 @@ struct ScreenBoardDetector {
             .map { hFull.apply(Double($0.0), Double($0.1)) }
         result.corners = ordered(quad)
 
+        // Curved-edge self-check. A wide lens bends straight board edges; a homography fitted to the
+        // inner grid then extrapolates the outer corners to the wrong place. Fit the same grid points with
+        // one radial lens term (free centre) and compare the outer corners of the two models.
+        let outerIJ = [(best.a - 1, best.b - 1), (best.a + 7, best.b - 1), (best.a + 7, best.b + 7), (best.a - 1, best.b + 7)]
+        if let lens = ScreenBoardDetector.radialFit(src, dst, width: full.width, height: full.height) {
+            result.lensK1 = lens.k1
+            result.lensK2 = lens.k2
+            result.lensCentre = (lens.c.x, lens.c.y)
+            result.curveShift = ScreenBoardDetector.curveShift(lens, outerIJ: outerIJ, quad: quad)
+        } else {
+            result.curveShift = .nan
+        }
+
         let support = min(1.0, Double(src.count) / 25.0)
         let marginFactor = scored.count > 1 ? min(1.0, margin / 0.7) : 1.0
         result.confidence = max(0, min(1, best.agree * (1 - best.ring) * support * marginFactor))
@@ -137,6 +158,9 @@ struct ScreenBoardDetector {
         if best.ring > params.maxRingRatio { result.reason = "checker-continues-outside-8x8"; return result }
         if scored.count > 1 && margin < params.minPlacementMargin { result.reason = "ambiguous-board-placement"; return result }
         if result.confidence < params.minConfidence { result.reason = "low-confidence"; return result }
+        if let why = ScreenBoardDetector.curveVerdict(result.curveShift, limit: params.maxCurveShiftFraction) {
+            result.reason = why; return result
+        }
         result.found = true
         result.reason = "ok"
         return result
@@ -352,6 +376,136 @@ struct ScreenBoardDetector {
             if moved < 0.02 { break }
         }
         return q
+    }
+
+    /// Radial lens model: x_d = c + (x_u - c)(1 + k1 r^2 + k2 r^4), r^2 = |x_u - c|^2 / norm (norm = squared
+    /// image half-diagonal). The centre c is fitted too: a real lens centre need not be the picture centre.
+    /// `h` maps lattice (i, j) to undistorted image coordinates.
+    struct LensFit {
+        var k1: Double
+        var k2 = 0.0
+        var h: Homography
+        var c: Point2
+        var norm: Double
+        func rho(_ p: Point2) -> Double { ((p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y)) / norm }
+        func scale(_ p: Point2) -> Double { let r = rho(p); return 1 + k1 * r + k2 * r * r }
+        /// Radial map is one-to-one at p: d/dr of r(1 + k1 r^2 + k2 r^4) = 1 + 3 k1 r^2 + 5 k2 r^4 stays positive.
+        func monotonic(_ p: Point2) -> Bool { let r = rho(p); return 1 + 3 * k1 * r + 5 * k2 * r * r > 0.1 }
+        func distort(_ p: Point2) -> Point2 {
+            let s = scale(p)
+            return Point2(x: c.x + (p.x - c.x) * s, y: c.y + (p.y - c.y) * s)
+        }
+        /// Inverse of `distort` by fixed-point iteration; nil unless it converges to a finite point.
+        func undistort(_ p: Point2) -> Point2? {
+            var q = p
+            for _ in 0..<30 {
+                let s = scale(q)
+                guard s > 0.1 else { return nil }
+                let n = Point2(x: c.x + (p.x - c.x) / s, y: c.y + (p.y - c.y) / s)
+                let moved = hypot(n.x - q.x, n.y - q.y)
+                q = n
+                if moved < 1e-4 { break }
+            }
+            let back = distort(q)
+            guard q.x.isFinite, q.y.isFinite, hypot(back.x - p.x, back.y - p.y) < 0.01 else { return nil }
+            return q
+        }
+    }
+
+    /// Best homography + one radial term (k1, k2 = 0) with free centre for the refined grid points (residuals
+    /// in image pixels). k1 in [-0.6, 0.6], centre anywhere inside the picture: a 5x5 grid of centres, each
+    /// with a 1-D search over k1, then a pattern search over (centre x, centre y, k1) from the best one.
+    /// A second free term (k2) was tried and dropped: 3x slower and the grid cannot pin it down.
+    /// Returns nil if no finite fit exists.
+    static func radialFit(_ src: [Point2], _ dst: [Point2], width: Int, height: Int) -> LensFit? {
+        let norm = Double(width * width + height * height) / 4
+        let xmax = Double(width - 1), ymax = Double(height - 1)
+        let kLo = -0.6, kHi = 0.6
+        func evaluate(_ cx: Double, _ cy: Double, _ k1: Double) -> (Double, LensFit)? {
+            guard cx >= 0, cx <= xmax, cy >= 0, cy <= ymax, k1 >= kLo, k1 <= kHi else { return nil }
+            var model = LensFit(k1: k1, h: Homography(h: [1, 0, 0, 0, 1, 0, 0, 0, 1]), c: Point2(x: cx, y: cy), norm: norm)
+            var und: [Point2] = []
+            for d in dst {
+                guard let u = model.undistort(d), model.monotonic(u) else { return nil }
+                und.append(u)
+            }
+            guard let h = Homography.fit(src, und) else { return nil }
+            model.h = h
+            var ss = 0.0
+            for (s, d) in zip(src, dst) {
+                let p = model.distort(h.apply(s.x, s.y))
+                ss += (p.x - d.x) * (p.x - d.x) + (p.y - d.y) * (p.y - d.y)
+            }
+            return ss.isFinite ? (ss, model) : nil
+        }
+        func searchK(_ cx: Double, _ cy: Double) -> (Double, Double)? {
+            let steps = 24
+            var bestK = 0.0, bestCost = Double.infinity
+            for n in 0...steps {
+                let k = kLo + (kHi - kLo) * Double(n) / Double(steps)
+                if let (cost, _) = evaluate(cx, cy, k), cost < bestCost { bestCost = cost; bestK = k }
+            }
+            guard bestCost.isFinite else { return nil }
+            let step = (kHi - kLo) / Double(steps)
+            var a = max(kLo, bestK - step), b = min(kHi, bestK + step)
+            let g = (sqrt(5.0) - 1) / 2
+            for _ in 0..<30 {
+                let x1 = b - g * (b - a), x2 = a + g * (b - a)
+                let f1 = evaluate(cx, cy, x1)?.0 ?? .infinity, f2 = evaluate(cx, cy, x2)?.0 ?? .infinity
+                if f1 < f2 { b = x2 } else { a = x1 }
+            }
+            let k = (a + b) / 2
+            if let (cost, _) = evaluate(cx, cy, k), cost <= bestCost { return (cost, k) }
+            return (bestCost, bestK)
+        }
+        var best: (cost: Double, x: Double, y: Double, k: Double)? = nil
+        for fy in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            for fx in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                if let (cost, k) = searchK(fx * xmax, fy * ymax), best == nil || cost < best!.cost {
+                    best = (cost, fx * xmax, fy * ymax, k)
+                }
+            }
+        }
+        guard var cur = best else { return nil }
+        var step = (x: xmax / 8, y: ymax / 8, k: 0.025)
+        var iterations = 0
+        while step.x > 0.5 && iterations < 400 {
+            iterations += 1
+            var moved = false
+            for (dx, dy, dk) in [(step.x, 0.0, 0.0), (-step.x, 0, 0), (0, step.y, 0), (0, -step.y, 0),
+                                 (0, 0, step.k), (0, 0, -step.k)] {
+                if let (cost, _) = evaluate(cur.x + dx, cur.y + dy, cur.k + dk), cost < cur.cost {
+                    cur = (cost, cur.x + dx, cur.y + dy, cur.k + dk); moved = true
+                }
+            }
+            if !moved { step = (step.x / 2, step.y / 2, step.k / 2) }
+        }
+        return evaluate(cur.x, cur.y, cur.k)?.1
+    }
+
+    /// Decision of the curved-edge check: nil = pass. Any non-finite or negative shift (no usable lens
+    /// fit) rejects, so a NaN can never pass the comparison.
+    static func curveVerdict(_ shift: Double, limit: Double) -> String? {
+        guard shift.isFinite, shift >= 0 else { return "lens-fit-failed" }
+        return shift > limit ? "board-edges-curved" : nil
+    }
+
+    /// Largest distance between the straight-fit outer corners `quad` (lattice positions `outerIJ`) and the
+    /// same corners under `lens`, as a share of the quad's mean side. NaN when any value is not finite.
+    static func curveShift(_ lens: LensFit, outerIJ: [(Int, Int)], quad: [Point2]) -> Double {
+        let side = (0..<4).map { hypot(quad[$0].x - quad[($0 + 1) % 4].x, quad[$0].y - quad[($0 + 1) % 4].y) }
+            .reduce(0, +) / 4
+        var worst = 0.0
+        for (ij, q) in zip(outerIJ, quad) {
+            let u = lens.h.apply(Double(ij.0), Double(ij.1))
+            guard lens.monotonic(u) else { return .nan }
+            let p = lens.distort(u)
+            let d = hypot(p.x - q.x, p.y - q.y)
+            guard d.isFinite else { return .nan }
+            worst = max(worst, d)
+        }
+        guard side.isFinite, side > 0 else { return .nan }
+        return worst / side
     }
 
     /// Cell-level checker test for the board whose internal corners are lattice a..a+6, b..b+6.

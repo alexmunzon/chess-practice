@@ -71,10 +71,19 @@ protocol OfflineImageRecognizer: Sendable { func recognize(_ bytes: Data) async 
     /// Called at most once when the runtime stops by itself (WebKit process death,
     /// startup failure, fatal reply). The model then stops showing the engine as ready.
     func observeClosure(_ handler: @escaping @MainActor () -> Void)
+    /// Best effort: start one spare engine now so the next analysis need not start its own. Produces
+    /// no result. The model ignores its outcome: a failure only means the next analysis starts a
+    /// fresh engine, as before.
+    func prewarm() async throws
+    /// Best effort: discard a spare engine that no analysis has taken.
+    func cancelPrewarm() async throws
 }
 extension OfflineBackend {
     /// Backends without a closure signal keep the previous behaviour.
     func observeClosure(_ handler: @escaping @MainActor () -> Void) {}
+    /// Backends without a spare engine keep the previous behaviour.
+    func prewarm() async throws {}
+    func cancelPrewarm() async throws {}
 }
 @MainActor protocol OfflineSpeech: AnyObject { func speak(_ text: String) throws; func cancel() }
 
@@ -118,6 +127,7 @@ enum ReviewField: String, CaseIterable, Identifiable {
     private var revision: UInt64 = 1
     private var session = UUID()
     private var active = true
+    private var prewarmTask: Task<Void, Never>?
 
     init(makeBackend: @escaping @MainActor () throws -> any OfflineBackend,
          recognizer: any OfflineImageRecognizer, loadFixture: @escaping @MainActor (StudyFixture) throws -> Data,
@@ -142,8 +152,21 @@ enum ReviewField: String, CaseIterable, Identifiable {
     }
     private func current(_ token: UUID, _ expected: UInt64) -> Bool { active && operation == token && revision == expected && !Task.isCancelled }
     private func finish(_ token: UUID) { if operation == token { busy = false; operation = nil; work = nil } }
+    /// The review screen is open (or its review just completed): ask for a spare engine. Called only
+    /// when no request of this model is in flight. Fire and forget; the outcome is ignored.
+    private func requestPrewarm() {
+        guard active, ready, board?.complete == true, let backend else { return }
+        prewarmTask?.cancel()
+        prewarmTask = Task { @MainActor in try? await backend.prewarm() }
+    }
+    /// Leaving review (un-tick, switch, reset, background): drop any spare. Closing the runtime also ends it.
+    private func dropPrewarm() {
+        prewarmTask?.cancel(); prewarmTask = nil
+        guard let backend else { return }
+        Task { @MainActor in try? await backend.cancelPrewarm() }
+    }
     /// Detach before closing so our own close never looks like an unexpected runtime stop.
-    private func closeBackend() { let old = backend; backend = nil; ready = false; old?.close() }
+    private func closeBackend() { dropPrewarm(); let old = backend; backend = nil; ready = false; old?.close() }
     private func backendClosed(_ closed: any OfflineBackend) {
         guard let backend, backend === closed else { return }
         invalidate(clearChecks: false); closeBackend()
@@ -175,7 +198,7 @@ enum ReviewField: String, CaseIterable, Identifiable {
     }
     func selectFixture(_ selection: StudyFixture) {
         guard selection != fixture else { return }
-        invalidate(clearChecks: true)
+        invalidate(clearChecks: true); dropPrewarm()
         board = nil; imageBytes = nil; fen = ""
         fixture = selection
         status = ready ? "Position selected. Read the board to begin review." : "Position selected. Start the local engine."
@@ -196,6 +219,7 @@ enum ReviewField: String, CaseIterable, Identifiable {
                 guard proposal.sha256 == NativeSyntheticRecognizer.sha256(bytes) else { throw OfflineStudyError.invalidImage }
                 self.imageBytes = bytes; self.board = proposal
                 self.status = proposal.complete ? "Unreviewed synthetic pieces. Enter all six FEN fields and review each group." : "Recognition is uncertain. Analysis is blocked."
+                self.requestPrewarm() // the review screen opens (only for a complete board)
             } catch { if self.current(token, expected) { self.status = "Recognition failed. Analysis is blocked." } }
         }
     }
@@ -207,6 +231,7 @@ enum ReviewField: String, CaseIterable, Identifiable {
         invalidate(clearChecks: false)
         if checked { checks.insert(field) } else { checks.remove(field) }
         status = "Review the supplied full position before validation."
+        if !checked { dropPrewarm() } else if checks.count == ReviewField.allCases.count { requestPrewarm() }
     }
     func validate() {
         guard canValidate, let board, let backend else { return }
@@ -226,6 +251,7 @@ enum ReviewField: String, CaseIterable, Identifiable {
                 self.review = Review(revision: expected, frame: identity, fen: source, terminal: position.terminal)
                 self.reviewed = true
                 self.status = position.terminal ? "Reviewed terminal position. No move advice." : "Reviewed offline position. Prior repetition history remains unknown."
+                if !position.terminal { self.requestPrewarm() }
             } catch { if self.current(token, expected) { self.review = nil; self.reviewed = false; self.status = "Position validation failed. Check all six FEN fields." } }
         }
     }

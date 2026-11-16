@@ -109,7 +109,24 @@ actor OfflinePixelRecognizer: OfflineImageRecognizer {
         if !runtime.isReady { runtimeStopped() }
     }
     func validate(_ fen: String) async throws -> ValidatedPosition { try await reporting { try await chess.validatePosition(fen) } }
-    func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult { try await reporting { try await chess.analyze(request) } }
+    /// Every analysis searches a fixed 100,000 nodes (docs/ENGINE_BUDGET.md) instead of the request's own
+    /// time limit, so advice does not depend on phone heat or load. The bundled runtime's pre-started
+    /// engine (core/prewarmed-engine.js) runs `go nodes N` and bounds the search by its own wall-clock deadline.
+    static let searchBudget: SearchBudget = .nodes(100_000)
+    func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
+        try await reporting { try await chess.analyze(request, budget: Self.searchBudget) }
+    }
+    /// Best effort and silent: failures are not runtime failures and are never reported to the model.
+    func prewarm() async throws { guard started, runtime.isReady else { return }; _ = try await chess.prewarm() }
+    func cancelPrewarm() async throws { guard started, runtime.isReady else { return }; try await chess.cancelPrewarm() }
+#if COMPANION_SELFTEST
+    /// Self-test diagnostics only: the spare's state (sends a prewarm, which keeps the one shared spare).
+    func prewarmStatus() async -> String? { guard started, runtime.isReady else { return nil }; return try? await chess.prewarm() }
+    /// Self-test diagnostics only: the search facts of the analysis with this request ID, if it was the last one.
+    func searchReport(for request: UUID) -> SearchReport? { chess.lastSearch?.request == request ? chess.lastSearch?.report : nil }
+    /// Self-test diagnostics only: true while the local runtime (and so any engine worker in it) is running.
+    var runtimeRunning: Bool { runtime.isReady }
+#endif
     func speech(fen: String, move: String) async throws -> String { try await reporting { try await chess.speechForLegalMove(fen: fen, moveUCI: move) } }
     func cancel() { chess.cancel() }
     func close() { closureHandler = nil; chess.cancel(); runtime.close() }

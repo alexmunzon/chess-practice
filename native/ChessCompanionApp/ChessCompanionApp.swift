@@ -25,11 +25,12 @@ struct ChessCompanionApp: App {
         // Constructing the models does not start WebKit, inference, SDK or audio.
         let resources = StudyResources(root: Bundle.main.bundleURL)
         fixtures = (try? resources.availableFixtures()) ?? [.starting]
-        replayAvailable = (try? resources.replayAvailable()) ?? false
+        let sequences = (try? resources.replaySequences()) ?? []
+        replayAvailable = !sequences.isEmpty
 #if COMPANION_SELFTEST
         if SelfTestRunner.requested {
             _model = StateObject(wrappedValue: SelfTestRunner.makeModel(resources: resources))
-            _replay = StateObject(wrappedValue: SelfTestRunner.makeReplayModel(resources: resources))
+            _replay = StateObject(wrappedValue: SelfTestRunner.makeReplayModel(resources: resources, sequences: sequences))
             return
         }
 #endif
@@ -40,12 +41,12 @@ struct ChessCompanionApp: App {
         _replay = StateObject(wrappedValue: ReplayGameModel(
             makeBackend: { try LocalOfflineBackend(resources: resources) },
             recognizer: OfflinePixelRecognizer(resources: resources),
-            loadFrame: { try resources.checked($0.asset) }))
+            loadFrame: { try resources.checked($0.asset) }, sequences: sequences))
     }
     var body: some Scene {
         WindowGroup {
             RootView(model: model, replay: replay, modeState: modeState, fixtures: fixtures, replayAvailable: replayAvailable)
-#if COMPANION_SELFTEST
+#if COMPANION_SELFTEST || COMPANION_MOCK_GLASSES
                 .modifier(SelfTestHook(model: model, replay: replay, modeState: modeState))
 #endif
                 .onAppear { apply(scenePhase, mode: modeState.mode) }

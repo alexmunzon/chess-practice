@@ -51,6 +51,10 @@ import AVFoundation
                     catch { self.coordinator.captureInterrupted(epoch: epoch) }
                 }
             }
+            // Revocation here depends on the SDK reporting a stream state change. In Meta's Mock Device Kit 1.0.1
+            // (docs/MOCK_GLASSES_RUN.md) taking the glasses off (doff) and denying camera permission mid-stream
+            // produced NO state change: frames kept arriving. Fold and power-off did stop the stream. A safety
+            // gate must therefore never rely on the stream stopping when the glasses come off.
             tokens.append(camera.stream.statePublisher.listen { [weak self] state in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == run else { return }

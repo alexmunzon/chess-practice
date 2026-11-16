@@ -23,6 +23,7 @@ What changed versus v2 (see docs/OCCUPANCY_CLASSIFIER_V3.md):
      square's ring is unclipped and its local lighting is calm. Global gain range widened to 0.33-3.0.
 """
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -43,6 +44,7 @@ VERSION = 'v3'
 PRE_BLUR_RADIUS = 1.0         # Gaussian denoise before pixel tests (v2)
 GAIN_RANGE = (0.33, 3.0)      # global light/dark correction allowed relative to calibration (v2: 0.5-2.0)
 FRAME_SHARPNESS_MIN = 0.4     # square-boundary contrast vs calibration; below = whole frame unknown (v2)
+CAL_SHARPNESS_MIN = 0.05      # v3.1: start's boundary sharpness must be finite and >= this, else the blur gate has no reference
 FG_DISTANCE = 40.0            # RGB distance from the locally corrected board that counts as "not board" (v2)
 EMPTY_MAX_FG = 0.03           # foreground share of the window at or below which the colour cue says empty (v2)
 PIECE_MIN_FG = 0.08           # ... at or above which it says occupied (v2)
@@ -154,6 +156,13 @@ def _sharpness(pixels):
             if far > 10:
                 ratios.append(near / far)
     return float(np.median(ratios)) if ratios else 0.0
+
+
+def _sharpness_reference_ok(value):
+    """v3.1: can value serve as the blur gate's reference? Only a finite number >= CAL_SHARPNESS_MIN can; with 0, a
+    negative number, NaN or a missing value the gate 'sharpness < FRAME_SHARPNESS_MIN x reference' could never fire."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+            and value >= CAL_SHARPNESS_MIN)
 
 
 def _fill_holes(mask):
@@ -414,8 +423,11 @@ def calibrate(start_image_rectified, start_occupancy):
     if problems:
         raise CalibrationError(f'{len(problems)} square(s) disagree with stated occupancy: '
                                + ', '.join(f'{s}:{r}' for s, r in problems[:8]))
+    sharpness = _sharpness(smooth)
+    if not _sharpness_reference_ok(sharpness):  # v3.1: no usable reference for the blur gate -> not a start picture
+        raise CalibrationError(f'start-boundary-sharpness-unusable:{sharpness!r}')
     return {'version': VERSION, 'emptyRef': [r.tolist() for r in empty_ref], 'contrast': contrast,
-            'boundarySharpness': _sharpness(smooth), 'fillRef': {'white': white_ref.tolist(),
+            'boundarySharpness': sharpness, 'fillRef': {'white': white_ref.tolist(),
                                                                 'black': black_ref.tolist()},
             'policy': policy()}
 
@@ -427,6 +439,8 @@ def _abstain_all(reason):
 
 def classify(image_rectified, calibration):
     """Return {square: {label, confidence, reasons, ...}} with label in empty/white/black/unknown."""
+    if not _sharpness_reference_ok(calibration.get('boundarySharpness')):  # v3.1: blur gate would be switched off
+        return _abstain_all('calibration-sharpness-invalid')
     raw, smooth = _prepare(image_rectified)
     empty_ref = [np.asarray(r) for r in calibration['emptyRef']]
     contrast = float(calibration['contrast'])

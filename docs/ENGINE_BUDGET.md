@@ -7,9 +7,10 @@ nodes/depth; Mac wall-clock is "Mac, loaded machine" only (load 12 to 447). Evid
 ## What the app does today
 - The app requests `movetimeMs: 1000` (`OfflineStudy.swift`, `ReplayGame.swift`); `worker-engine.js`
   runs `go movetime 1000` in a **fresh Worker per analysis** (uci, Hash 32, isready, ucinewgame).
-- Phone self-test (`phone-run2`) has milliseconds only, no nodes/depth/nps. Analysis 1574-1986 ms;
-  the 3463 ms outlier was the **second** analysis, not the first. Beyond the 1000 ms search: 574-986 ms
-  (median ~760), 2463 ms in the outlier: per-request worker startup.
+- Phone self-test (`phone-run2`) has milliseconds only, no nodes/depth/nps. Seven analyses: 1574-1986 ms
+  for six of them, plus a 3463 ms outlier that was the **second** analysis, not the first. Time beyond
+  the 1000 ms search (per-request worker startup): 574-986 ms, median about 707 ms, for the six; 2463 ms
+  in the outlier; median of all seven about 762 ms.
 
 ## Method
 - Positions: `node scripts/engine-budget-report.mjs --out ladder.json --positions 102 --seed 20261115`.

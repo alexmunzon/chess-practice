@@ -10,6 +10,7 @@ if args.isEmpty || args.contains("--help") {
 }
 let detector = ScreenBoardDetector()
 func r3(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
+func r3OrNull(_ v: Double) -> Any { v.isFinite ? r3(v) : NSNull() }  // JSON has no NaN
 for path in args {
     var obj: [String: Any] = ["image": path]
     let t0 = Date()
@@ -29,7 +30,9 @@ for path in args {
     obj["diagnostics"] = ["xCornerCandidates": d.candidates, "latticePoints": d.latticePoints,
                           "span": [d.span.0, d.span.1], "cellAgreement": r3(d.cellAgreement),
                           "ringRatio": r3(d.ringRatio), "placementMargin": r3(d.placementMargin),
-                          "fitRmsPx": r3(d.fitRMS)] as [String: Any]
+                          "fitRmsPx": r3(d.fitRMS), "lensK1": r3OrNull(d.lensK1), "lensK2": r3OrNull(d.lensK2),
+                          "lensCentre": [r3OrNull(d.lensCentre.0), r3OrNull(d.lensCentre.1)],
+                          "curveShiftPctSide": r3OrNull(100 * d.curveShift)] as [String: Any]
     obj["decodeMs"] = r3(t1.timeIntervalSince(t0) * 1000)
     obj["detectMs"] = r3(t2.timeIntervalSince(t1) * 1000)
     obj["imageSize"] = [image.width, image.height]

@@ -196,6 +196,7 @@ struct ReplayRecommendation: Equatable, Sendable {
     private var virtualMilliseconds: UInt64 = 0
     private var frameSequence: UInt64 = 0
     private var startTask: Task<Void, Never>?, stepTask: Task<Void, Never>?, analysisTask: Task<Void, Never>?
+    private var prewarmTask: Task<Void, Never>?
     private var startToken: UUID?, stepToken: UUID?, analysisToken: UUID?
 
     init(makeBackend: @escaping @MainActor () throws -> any ReplayEngineBackend,
@@ -273,7 +274,22 @@ struct ReplayRecommendation: Equatable, Sendable {
         if clearDraft { fen = "" }
         status = message
     }
-    private func closeBackend() { let old = backend; backend = nil; tracker = nil; ready = false; old?.close() }
+    /// A review screen is open (or a review just started tracking): ask for a spare engine so the first
+    /// analysis need not start its own. Called only where no tracker or engine request of this model is
+    /// in flight. Fire and forget; the outcome is ignored (a failure means a fresh engine, as before).
+    private func requestPrewarm() {
+        guard active, ready, board?.complete == true, phase == .needsReview || phase == .tracking, let backend else { return }
+        prewarmTask?.cancel()
+        prewarmTask = Task { @MainActor in try? await backend.prewarm() }
+    }
+    /// Leaving review (un-tick, game switch, reset, background, leaving the mode): drop any spare.
+    /// Closing the runtime also ends it.
+    private func dropPrewarm() {
+        prewarmTask?.cancel(); prewarmTask = nil
+        guard let backend else { return }
+        Task { @MainActor in try? await backend.cancelPrewarm() }
+    }
+    private func closeBackend() { dropPrewarm(); let old = backend; backend = nil; tracker = nil; ready = false; old?.close() }
     private func backendClosed(_ closed: any ReplayEngineBackend) {
         guard let backend, backend === closed else { return }
         bump(); cancelInFlight(); closeBackend(); clearTracking(); checks = []
@@ -369,6 +385,7 @@ struct ReplayRecommendation: Equatable, Sendable {
                 self.status = proposal.board.complete
                     ? "Tracking is not active. Review this frame (all five confirmations) to start tracking."
                     : "Unknown squares on this frame. Tracking and analysis are blocked."
+                self.requestPrewarm() // the review screen opens (only for a complete board)
                 return
             }
             self.status = "Asking the legal-move tracker about this frame…"
@@ -481,6 +498,7 @@ struct ReplayRecommendation: Equatable, Sendable {
         if checked { checks.insert(field) } else { checks.remove(field) }
         status = wasTracking ? "Review changed. Tracking and any recommendation are revoked. Review this frame again."
                              : "Review the supplied full position before starting tracking."
+        if !checked { dropPrewarm() } else if checks.count == ReviewField.allCases.count { requestPrewarm() }
     }
 
     /// One complete human review of the shown frame starts (or restarts) tracking.
@@ -520,6 +538,7 @@ struct ReplayRecommendation: Equatable, Sendable {
                 self.session = session; self.reviewEpoch = session.epoch
                 if await self.observePair(board, expected, reviewedFEN: source, previousFEN: nil, previousRevision: nil) {
                     self.status = "Tracking from your reviewed position. Earlier repetition history is unknown."
+                    self.requestPrewarm() // review done; the first analysis can take the spare
                 }
             } catch {
                 if self.current(expected) { self.checks = []; self.status = "Position validation failed. Check all six FEN fields and review again." }

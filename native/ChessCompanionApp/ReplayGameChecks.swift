@@ -220,7 +220,7 @@ private actor MockPixels: OfflineImageRecognizer {
     }
     func analyze(_ request: AnalysisRequest) async throws -> NativeEngineResult {
         ledger.enterEngine(); defer { ledger.leaveEngine(); analysisReturns += 1 }
-        analyses += 1; self.request = request
+        analyses += 1; self.request = request; noteEngineRequest()
         if holdAnalysis { return try await withCheckedThrowingContinuation { analyzing = $0 } }
         await Task.yield()
         return reply()
@@ -239,10 +239,37 @@ private actor MockPixels: OfflineImageRecognizer {
         return "text for \(move) at \(fen.prefix(20))"
     }
     func cancel() {
-        cancels += 1
+        cancels += 1; engineCancelled = true
         if cancelFailsHeld, let held = analyzing { analyzing = nil; held.resume(throwing: CancellationError()) }
     }
     func close() { closes += 1 }
+    // Pre-started engine stand-in (2026-11-16): holdable prewarm, optional warm-up leak into a held analysis.
+    var prewarms = 0, prewarmCancels = 0, prewarmCallsWhileLive = 0
+    var holdPrewarm = false, prewarmFails = false
+    var heldPrewarms: [CheckedContinuation<Void, Error>] = []
+    private var engineCancelled = true
+    /// A tracker request in flight, or an engine request the model has not cancelled since it started.
+    var live: Bool { ledger.tracker > 0 || (ledger.engine > 0 && !engineCancelled) }
+    func noteEngineRequest() { engineCancelled = false }
+    func prewarm() async throws {
+        prewarms += 1; if live { prewarmCallsWhileLive += 1 }
+        if prewarmFails { throw OfflineStudyError.missingResource }
+        if holdPrewarm { try await withCheckedThrowingContinuation { heldPrewarms.append($0) } }
+    }
+    func cancelPrewarm() async throws {
+        prewarmCancels += 1; if live { prewarmCallsWhileLive += 1 }
+        if prewarmFails { throw OfflineStudyError.missingResource }
+    }
+    func releasePrewarms(leak: Bool = false) {
+        let held = heldPrewarms; heldPrewarms = []
+        for continuation in held { continuation.resume() }
+        if leak, let input = request, let pending = analyzing {
+            analyzing = nil
+            let warmup = AnalysisRequest(id: input.id, frame: input.frame, revision: input.revision,
+                                         fen: "r1bq1rk1/pp3ppp/2np4/4N3/1PBQ4/P1P2RK1/8/8 w - - 0 1", movetimeMilliseconds: input.movetimeMilliseconds)
+            pending.resume(returning: NativeEngineResult(request: warmup, moveUCI: "g1f3"))
+        }
+    }
     func observeClosure(_ handler: @escaping @MainActor () -> Void) { closure = handler }
     func die() { closure?() }
     func makeTrackerTransport() -> any ReplayTrackerTransport { transport }
@@ -732,6 +759,8 @@ private func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
                 pass("special-switch-sequence-mid-game-revokes", rig); overlaps += held.ledger.overlaps + heldTracker.ledger.overlaps
             }
 
+            try await prewarmChecks(pass)
+
             try check(overlaps == 0, "Tracker and engine requests overlapped \(overlaps) times")
             print("Replay game mock checks: \(names.count)/\(names.count) passed; tracker/engine overlaps: 0; no WebKit, recognition inference, device, speech or audio.")
             for name in names { print("  pass  \(name)") }
@@ -739,5 +768,117 @@ private func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
             print("FAILED after \(names.count) passing checks: \(error)")
             exit(1)
         }
+    }
+}
+
+/// Pre-started engine cases added 2026-11-16 (held-back stand-in replies).
+@MainActor private func prewarmChecks(_ pass: (String, Rig) -> Void) async throws {
+    var whileLive = 0
+    // RP1: prewarm when a review screen opens (a complete frame needing review), when the review becomes
+    // complete and when tracking starts; not on a clean tracked advance, not for an obstructed frame.
+    do {
+        let rig = Rig(); try await rig.started(); await settle()
+        try check(rig.model.phase == .needsReview && rig.engine.prewarms == 1, "RP1: prewarm when the first frame needs review")
+        rig.model.editFEN(startFEN)
+        for field in ReviewField.allCases { rig.model.setReview(field, checked: true) }
+        await settle()
+        try check(rig.engine.prewarms == 2, "RP1: prewarm when all five boxes are ticked")
+        rig.model.confirmReview(); try await idle(rig.model); await settle()
+        try check(rig.model.phase == .tracking && rig.engine.prewarms == 3, "RP1: prewarm when tracking starts")
+        rig.model.step(); try await idle(rig.model); await settle()
+        try check(rig.model.phase == .tracking && rig.engine.prewarms == 3, "RP1: no prewarm on a clean tracked advance")
+        rig.model.queueInterruption(); rig.model.step(); try await idle(rig.model); await settle()
+        try check(rig.model.phase == .needsReview && rig.model.board?.complete == false && rig.engine.prewarms == 3, "RP1: no prewarm for an obstructed frame")
+        rig.model.step(); try await idle(rig.model); await settle()
+        try check(rig.model.phase == .needsReview && rig.model.board?.complete == true && rig.engine.prewarms == 4, "RP1: prewarm when a complete frame needs renewed review")
+        // An obstructed frame shown while NOT tracking (the review screen is open) must not ask for a spare.
+        rig.model.queueInterruption(); rig.model.step(); try await idle(rig.model); await settle()
+        try check(rig.model.phase == .needsReview && rig.model.board?.complete == false && rig.engine.prewarms == 4, "RP1: no prewarm for an obstructed frame that needs review")
+        whileLive += rig.engine.prewarmCallsWhileLive
+        pass("prewarm-requested-when-review-screen-opens", rig)
+    }
+    // RP2: a prewarm in flight when the user confirms: releasing it changes nothing; advice only for the
+    // tracked, reviewed position. A warm-up result leaking into the analysis channel is never shown.
+    do {
+        let rig = Rig(); rig.engine.holdPrewarm = true
+        try await rig.tracking(); await settle()
+        try check(!rig.engine.heldPrewarms.isEmpty, "RP2: a prewarm is in flight when tracking starts")
+        rig.engine.holdAnalysis = true; rig.engine.cancelFailsHeld = false
+        rig.model.analyze(); try await until("held analysis") { rig.engine.analyzing != nil }
+        let before = Snapshot(rig.model)
+        rig.engine.releasePrewarms(); await settle()
+        try check(Snapshot(rig.model) == before && rig.model.recommendation == nil, "RP2: a prewarm completing changes nothing visible")
+        rig.engine.analyzing?.resume(returning: rig.engine.reply()); rig.engine.analyzing = nil
+        try await idle(rig.model)
+        try check(rig.model.recommendation != nil && rig.engine.request?.fen == startFEN && rig.model.result?.identity == rig.model.currentIdentity,
+                  "RP2: advice for the tracked reviewed position only")
+
+        let leak = Rig(); leak.engine.holdPrewarm = true
+        try await leak.tracking(); await settle()
+        leak.engine.holdAnalysis = true; leak.engine.cancelFailsHeld = false
+        leak.model.analyze(); try await until("held analysis") { leak.engine.analyzing != nil }
+        leak.engine.releasePrewarms(leak: true); try await idle(leak.model); await settle()
+        try check(leak.model.recommendation == nil && leak.model.result == nil && leak.engine.legalTexts == 0 &&
+                  leak.model.status.hasPrefix("Analysis failed"), "RP2: a warm-up result is never shown as a recommendation")
+        whileLive += rig.engine.prewarmCallsWhileLive + leak.engine.prewarmCallsWhileLive
+        pass("prewarm-in-flight-at-confirm-advice-only-for-confirmed-position", rig)
+    }
+    // RP3: un-ticking the review, switching game, reset, background and leaving the mode each cancel the
+    // prewarm (all but un-tick also close the runtime); a held analysis reply released later shows nothing.
+    do {
+        let leavers: [(String, Bool, @MainActor (ReplayGameModel) -> Void)] = [
+            ("review untick", false, { $0.setReview(.castling, checked: false) }),
+            ("game switch", true, { $0.selectSequence("special") }),
+            ("reset", true, { $0.reset() }),
+            ("background", true, { $0.setActive(false) }),
+            ("leave mode", true, { $0.leave() }),
+        ]
+        var last: Rig?
+        for (name, closes, leave) in leavers {
+            let rig = Rig(special: true); rig.engine.holdPrewarm = true
+            try await rig.tracking(); await settle()
+            rig.engine.holdAnalysis = true; rig.engine.cancelFailsHeld = false
+            rig.model.analyze(); try await until("held analysis") { rig.engine.analyzing != nil }
+            let cancelsBefore = rig.engine.prewarmCancels
+            leave(rig.model); await settle()
+            try check(rig.engine.prewarmCancels == cancelsBefore + 1, "RP3: \(name) must cancel the prewarm")
+            try check(rig.engine.closes == (closes ? 1 : 0), "RP3: \(name) closes the runtime except for un-tick")
+            try await frozen(rig.model, "RP3: late replies after \(name)") {
+                rig.engine.releasePrewarms()
+                rig.engine.analyzing?.resume(returning: rig.engine.reply()); rig.engine.analyzing = nil
+            }
+            try check(rig.engine.legalTexts == 0 && rig.model.recommendation == nil, "RP3: nothing shown after \(name)")
+            whileLive += rig.engine.prewarmCallsWhileLive
+            last = rig
+        }
+        pass("prewarm-cancelled-on-untick-switch-reset-background-leave", last!)
+    }
+    // RP4: a failing prewarm is invisible: same visible state as a run without it, and advice still arrives.
+    do {
+        let failing = Rig(), normal = Rig(); failing.engine.prewarmFails = true
+        for rig in [failing, normal] { try await rig.tracking(); await settle(); try await rig.analyzed(); await settle() }
+        try check(failing.engine.prewarms > 0 && failing.model.recommendation != nil && failing.model.status == normal.model.status &&
+                  failing.model.recommendation == normal.model.recommendation && failing.model.phase == normal.model.phase,
+                  "RP4: prewarm failure falls back to normal analysis, invisibly")
+        pass("prewarm-failure-falls-back-invisibly", failing)
+    }
+    // RP5: prewarm and cancel-prewarm are sent only when no tracker request and no live engine request
+    // is in flight (so a prewarm can never cancel a tracker request or the user's analysis), across a
+    // game with reviews, advances, analyses, an advance during analysis and an obstruction.
+    do {
+        let rig = Rig(); try await rig.tracking(); await settle()
+        rig.engine.holdAnalysis = true; rig.engine.cancelFailsHeld = false
+        rig.model.analyze(); try await until("held analysis") { rig.engine.analyzing != nil }
+        await settle()
+        let duringAnalysis = rig.engine.prewarmCallsWhileLive
+        rig.engine.analyzing?.resume(returning: rig.engine.reply()); rig.engine.analyzing = nil; try await idle(rig.model)
+        rig.engine.holdAnalysis = false
+        rig.model.step(); try await idle(rig.model); rig.model.step(); try await idle(rig.model); try await rig.analyzed()
+        rig.model.queueInterruption(); rig.model.step(); try await idle(rig.model)
+        rig.model.step(); try await idle(rig.model); try await rig.review(e4FEN); await settle()
+        whileLive += rig.engine.prewarmCallsWhileLive
+        try check(rig.engine.prewarms >= 4 && duringAnalysis == 0 && whileLive == 0,
+                  "RP5: \(whileLive) prewarm requests were sent while a request was live (prewarms \(rig.engine.prewarms))")
+        pass("prewarm-only-when-no-request-is-live", rig)
     }
 }

@@ -1,0 +1,204 @@
+{
+  "purpose": "Machine-readable status for the next orchestrator session. FABLE-HANDOFF.md explains it in words; update both together. Every value here must be re-checked, not trusted.",
+  "updated": "2026-11-16T11:50+01:00",
+  "lastCommit": "46ce560",
+  "checkCommand": "scripts/check-all.sh",
+  "lastKnownChecks": {
+    "npmTest": {
+      "tests": 346,
+      "pass": 338,
+      "fail": 0,
+      "skipped": 8,
+      "at": "2026-11-16 04:42",
+      "note": "orchestrator-run"
+    },
+    "pythonTests": {
+      "screen_pipeline": "31/31",
+      "occupancy_classifier_v3": "21/21",
+      "occupancy_classifier": "11/11",
+      "mock_glasses_video": "pass",
+      "screen_game_scenes": "32/32",
+      "occupancy_classifier_v4": "55/55 (v4.3)",
+      "mock_glasses_frame_age": "3 tests, 38/38 rule checks"
+    },
+    "phoneSelfTest": {
+      "result": "30/30",
+      "runs": "3 of 3 on build after2 (5ffa41a7 normal / d3596d58 self-test); 2 of 2 on build after; 3 earlier attempts interrupted by a sleeping screen",
+      "evidenceType": "real iPhone, scripted review",
+      "at": "2026-11-16T04:50+01:00",
+      "evidence": "/Users/alexmunzon/chess-builds/prewarm-wiring-2026-11-16/phone-run1 and phone-run2"
+    },
+    "simulatorSelfTest": {
+      "runs": [
+        "27/30",
+        "25/30",
+        "27/30",
+        "28/30",
+        "28/30"
+      ],
+      "note": "agent-reported; misses are slow engine searches past the 4.5 s deadline, all failed safe"
+    },
+    "checkAll": {
+      "result": "8 of 8 suites",
+      "at": "2026-11-16T08:51+01:00",
+      "note": "orchestrator-run; reader v4 tests were 53 then, 55 at v4.3 (orchestrator-run 11:10)"
+    },
+    "mockSuites": "Study 33/33, Replay 31/31, Integration 23/23, Tracker 94/94"
+  },
+  "frozen": {
+    "classifierV3Sha256": "16c14a0a889c34e675772af675755fdfa8c886d5432bfc2027aa0235ebc685c3",
+    "classifierV31Sha256": "c634a76de4b423996b9f847d99ce9c802b6c03ac18de60cb8558b485247926ee",
+    "pipelineRound3PolicyV3": "6626483d216a8ca0eb549bc6e88a44ba537930e25690a98604643b5df64b0e6a",
+    "note": "held-out scores so far were made with v3 (16c14a0a) and the round-2 pipeline; v3.1 is proven label-identical on development data only; stressheld was scored with pipeline 49d7ce83, scorer c7d4fdec, corner finder b5774046",
+    "classifierV4Sha256": "de58ef042a58243ce7919d52f885986a0c88aa8a73e61cdcbdbb26b33dbb474b (v4.3; v4.0 1e0830ba, v4.1 43ffc22a and v4.2 3d814e14 were each rejected by review)",
+    "occupancyTrackerRound4Sha256": "e8f1fba6bea01ebc8b5316c4e5ca964dbc91ae87106b8b48305d3166d399c228 (superseded by rounds 5 and 6)",
+    "cornerFinderRound2Sha256": "3292bcaeabd3bbd0c9e599f6f8f2ee2dc6debc8123388b4110d977e2b80d617c (reviewed: improvement, not a lens guard; not in the pipeline)"
+  },
+  "heldOutData": [
+    {
+      "split": "heldout",
+      "root": "pipeline-2026-11-15/scenes",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "runs": [
+        "pipeline with classifier v2, one picture per position"
+      ]
+    },
+    {
+      "split": "heldout2",
+      "root": "pipeline-2026-11-15/scenes-v2",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "runs": [
+        "classifier v2",
+        "classifier v3"
+      ]
+    },
+    {
+      "split": "stressheld",
+      "root": "pipeline-2026-11-15/scenes-stress",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "at": "2026-11-16T11:17-11:44+01:00",
+      "runs": [
+        "pipeline with reader v3.1 (c634a76d)",
+        "pipeline with reader v4.3 (de58ef04)"
+      ],
+      "result": {
+        "games": 36,
+        "agree2WrongMoves": {
+          "v3.1": 0,
+          "v4.3": 0
+        },
+        "agree1WrongMoves": {
+          "v3.1": 2,
+          "v4.3": 2
+        },
+        "startsAccepted": {
+          "v3.1": "28/36",
+          "v4.3": "30/36"
+        },
+        "reReviewsPer100PositionsAgree2": {
+          "v3.1": 20.9,
+          "v4.3": 26.8
+        }
+      },
+      "evidence": "pipeline-2026-11-15/pipeline/final-stressheld-v3.log and final-stressheld-v4.log"
+    },
+    {
+      "split": "heldout (single-position scenes)",
+      "root": "screen-board-2026-11-15",
+      "status": "spent",
+      "runs": [
+        "corner finder, before this session"
+      ]
+    }
+  ],
+  "inFlightAtHandoff": [],
+  "backlog": [
+    {
+      "id": 1,
+      "task": "decide the default reader (recommendation: v3.1 default, v4.3 as fallback when v3.1 refuses a start; fallback not built); v4.3 has no review of its own; no held-out data is left",
+      "status": "waiting on Alex"
+    },
+    {
+      "id": 2,
+      "task": "swap corner finder bin-new2 into the pipeline under a new name, re-run development splits, then make it default",
+      "status": "not_started"
+    },
+    {
+      "id": 3,
+      "task": "lens undistortion before the corner finder",
+      "status": "not_started"
+    },
+    {
+      "id": 4,
+      "task": "motion blur in the square reader",
+      "status": "not_started"
+    },
+    {
+      "id": 5,
+      "task": "tracker: review round 6, then Alex decides on wiring",
+      "status": "blocked",
+      "blockedBy": "review + Alex"
+    },
+    {
+      "id": 6,
+      "task": "engine wiring low-severity leftovers; slow-search question",
+      "status": "not_started"
+    },
+    {
+      "id": 7,
+      "task": "frame age method 1 margin; needs real glasses",
+      "status": "blocked",
+      "blockedBy": "glasses approval"
+    },
+    {
+      "id": 8,
+      "task": "test hygiene: two pipeline tests leave v2 selected",
+      "status": "waiting on Alex"
+    },
+    {
+      "id": 9,
+      "task": "refresh PLAN.md, VERIFICATION.md, status page; engine-host-died WebKit test; evidence retention",
+      "status": "not_started"
+    }
+  ],
+  "capacity": {
+    "workers": "5-6",
+    "cpuHeavyMax": 2,
+    "simulatorMax": 1,
+    "note": "run uptime before launching a heavy worker; load reached 407 with 7 heavy workers; builder type used about 139K tokens for a fix round versus 245K-445K for general-purpose workers on comparable rounds (indicative); under the no-extra-usage rule run 2-3 workers when the 5-hour window is above 50%"
+  },
+  "waitingOnAlex": [
+    "tracker wiring decision (accept window / keep out / off-by-default setting)",
+    "slow engine search: accept or warm-up",
+    "try both Replay games by hand",
+    "camera and real-glasses approval",
+    "off-machine backup",
+    "ChessReD dataset download",
+    "evidence retention for 31.5 GB",
+    "commit"
+  ],
+  "stressdevResult": {
+    "reader": "v3",
+    "agree1WrongMoves": 5,
+    "agree2WrongMoves": 0,
+    "startsAccepted": "27/36",
+    "note": "all wrong moves from mid-move pictures; other piece styles 0/6 starts",
+    "evidence": "pipeline-2026-11-15/pipeline/r3-stressdev-v3.log"
+  },
+  "decisions": [
+    "two-picture agreement rule stays on",
+    "self-aware scoring mode is the headline",
+    "reader v3.1 is default; piece-in-transit rule off until reviewed at wiring",
+    "no code-ownership role (Alex, 2026-11-16)",
+    "workers use the lean builder type; reviews use code-reviewer",
+    "library start-up reader is v3 (2026-11-16)",
+    "no paid extra usage: stop launching at 70%, stop workers at 80% (Alex, 2026-11-16)",
+    "tracker is not wired in until Alex decides; piece-in-transit stays off",
+    "stressheld is scored only after v4.1 passes re-review",
+    "stressheld spent 2026-11-16; all held-out sets are now spent, new unseen pictures are needed for any further tuning claim",
+    "corner finder round 2 may replace the pipeline finder as an improvement, not as a lens guard"
+  ]
+}

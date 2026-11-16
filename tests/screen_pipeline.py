@@ -21,6 +21,8 @@ import screen_pipeline as sp  # noqa: E402
 import evaluate_screen_pipeline as ev  # noqa: E402
 from render import render  # noqa: E402
 
+SP_PATH = ROOT / 'scripts/recognition/screen_pipeline.py'
+
 START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1'
 AFTER_E5 = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2'
@@ -138,12 +140,13 @@ class ScreenPipelineTests(unittest.TestCase):
         self.assertEqual(sp.a8_from_screen(list(rec0['labelsA8H1']), 0),
                          ['.wb?'['empty white black unknown'.split().index(x)] for x in ev.truth_occ_a8h1(AFTER_E4)])
         self.assertEqual((rec0.get('acceptedMove'), rec1.get('acceptedMove')), ('e2e4', 'e2e4'))
-        # a pure 180-degree IMAGE flip also turns the pieces upside down; record what happens, never a wrong move
+        self.assertEqual(rec0['inference']['status'], 'move')
+        # A pure 180-degree IMAGE flip is not what a site shows: it also turns the pieces upside down. The
+        # calibration must refuse it in all four rotations (measured for v2 and v3), never pick one.
         img, quad = flip180(self.start_img, QUAD)
         rec = sp.GameTracker(START, self.bridge).start(0, img, det_for(quad))
-        self.assertIn(rec['status'], ('start-accepted', 'start-rejected'))
-        if rec['status'] == 'start-accepted':
-            self.assertEqual(rec['rotation'], 2)
+        self.assertEqual(rec['status'], 'start-rejected')
+        self.assertEqual([t['calibrated'] for t in rec['rotationsTried']], [False] * 4)
 
     def test_square_grid_rotation_round_trip(self):
         vals = list(range(64))
@@ -171,7 +174,7 @@ class ScreenPipelineTests(unittest.TestCase):
         tracker = sp.GameTracker(START, self.bridge)
         tracker.start(0, self.start_img, det_for(QUAD))
         rec = tracker.step(1, self.e4_img, {'found': False, 'reason': 'no-lattice', 'confidence': 0})
-        self.assertEqual((rec['status'], rec['cause']), ('withheld', 'detector'))
+        self.assertEqual((rec['status'], rec['cause']), ('withheld', 'detector-not-found'))
         self.assertEqual(tracker.fen, START)
         if sp.DEFAULT_DETECTOR.exists():  # the real binary on a blank frame
             with tempfile.TemporaryDirectory() as d:
@@ -179,7 +182,42 @@ class ScreenPipelineTests(unittest.TestCase):
                 Image.new('RGB', (640, 480), (40, 40, 40)).save(p)
                 det = sp.run_detector([p])[str(p)]
                 self.assertFalse(det['found'])
-                self.assertEqual(tracker.step(2, self.e4_img, det)['cause'], 'detector')
+                self.assertFalse(det.get('error'))
+                self.assertEqual(tracker.step(2, self.e4_img, det)['cause'], 'detector-not-found')
+
+    def _fake_detector(self, d, body):
+        exe = Path(d) / 'fake-detect'
+        exe.write_text('#!/bin/sh\n' + body + '\n')
+        exe.chmod(0o755)
+        return exe
+
+    def test_detector_error_is_not_board_not_found(self):
+        tracker = sp.GameTracker(START, self.bridge)
+        tracker.start(0, self.start_img, det_for(QUAD))
+        with tempfile.TemporaryDirectory() as d:
+            img = str(Path(d) / 'x.png')
+            for body in ('exit 3', 'echo not-json', 'echo \'{"image": "' + img + '", "found": true}\''):
+                det = sp.run_detector([img], self._fake_detector(d, body))[img]
+                self.assertTrue(det['error'], body)
+                self.assertFalse(det['found'])
+                self.assertEqual(tracker.step(1, self.e4_img, det)['cause'], 'detector-error')
+            det = sp.run_detector([img], Path(d) / 'missing-binary')[img]
+            self.assertTrue(det['error'])
+
+    def test_scorer_exits_nonzero_on_detector_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'scenes'
+            (root / 'truth').mkdir(parents=True)
+            game = multi_game([(START, None, 1), (AFTER_E4, 'e2e4', 1)])
+            game.update(split='devx', id='g0')
+            (root / 'truth/games.json').write_text(__import__('json').dumps({'games': [game]}))
+            exe = self._fake_detector(d, 'exit 1')
+            with self.assertRaises(SystemExit) as ctx:
+                ev.evaluate_games(root, 'devx', Path(d) / 'out', exe, agrees=('1',))
+            self.assertEqual(ctx.exception.code, 2)
+            rep = ev.evaluate_games(root, 'devx', Path(d) / 'out2', exe, agrees=('1',), allow_detector_errors=True)
+            self.assertEqual(len(rep['detectorErrors']), 2)
+            self.assertEqual(rep['configs']['agree1']['modes']['strict']['startRejected'], 1)
 
     def test_orientation_jump_is_withheld(self):
         tracker = sp.GameTracker(START, self.bridge)
@@ -322,13 +360,116 @@ class ScreenPipelineTests(unittest.TestCase):
     def test_classifier_switch(self):
         sp.set_classifier('v2')
         self.assertIs(sp.clf(), oc)
-        if importlib.util.find_spec('occupancy_classifier_v3') is None:
-            with self.assertRaises(SystemExit) as ctx:
-                sp.set_classifier('v3')
-            self.assertIn('occupancy_classifier_v3.py', str(ctx.exception))
-            self.assertIs(sp.clf(), oc)
+        self.assertEqual(sp.DEFAULT_CLASSIFIER, 'v3')
         with self.assertRaises(SystemExit):
             sp.set_classifier('v9')
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'fake_partial_classifier.py').write_text('def calibrate(*a):\n    pass\n')
+            sys.path.insert(0, d)
+            old = dict(sp.CLASSIFIERS)
+            try:
+                sp.CLASSIFIERS.update(vmissing='no_such_classifier_module_xyz', vpartial='fake_partial_classifier')
+                with self.assertRaises(SystemExit) as ctx:
+                    sp.set_classifier('vmissing')
+                self.assertIn('no_such_classifier_module_xyz.py', str(ctx.exception))
+                with self.assertRaises(SystemExit) as ctx:
+                    sp.set_classifier('vpartial')
+                self.assertIn('must match the v2 API', str(ctx.exception))
+                self.assertIs(sp.clf(), oc)  # a failed switch leaves the current classifier in place
+            finally:
+                sp.CLASSIFIERS.clear(); sp.CLASSIFIERS.update(old); sys.path.remove(d)
+
+    def test_fresh_import_starts_on_v3_without_set_classifier(self):
+        # a library caller that never picks a reader must get v3 (v2's blur-gate hole is closed only in v3.1)
+        spec = importlib.util.spec_from_file_location('screen_pipeline_fresh', SP_PATH)
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertEqual(fresh._CLASSIFIER['name'], 'v3')
+        self.assertEqual(fresh.clf().__name__, 'occupancy_classifier_v3')
+        doc = fresh.policy()
+        self.assertEqual(doc['classifierName'], 'v3')
+        self.assertEqual(doc['classifier'], fresh.clf().policy())
+
+    def test_v2_still_selectable_by_name(self):
+        try:
+            self.assertIs(sp.set_classifier('v2'), oc)
+            self.assertIs(sp.clf(), oc)
+            self.assertNotIn('classifierName', sp.policy())  # v2 keeps the round-1 hash layout
+        finally:
+            sp.set_classifier(sp.DEFAULT_CLASSIFIER)
+
+    def test_more_unusable_pictures_than_the_skip_cap_drop_the_pending_move(self):
+        cap = sp.POLICY['AGREE_MAX_SKIPPED']
+        n = cap + 1
+        _, recs, _, _ = self.run_hand([(START, None, 1), (AFTER_E4, 'e2e4', n + 2)], {1: AFTER_E4, n + 2: AFTER_E4},
+                                      dets={i: {'found': False} for i in range(2, n + 2)})
+        self.assertEqual(recs[1]['guard'], 'discarded')
+        self.assertEqual(recs[-1]['status'], 'pending')  # the late picture starts a new count
+        _, recs, _, _ = self.run_hand([(START, None, 1), (AFTER_E4, 'e2e4', cap + 2)],
+                                      {1: AFTER_E4, cap + 2: AFTER_E4},
+                                      dets={i: {'found': False} for i in range(2, cap + 2)})
+        self.assertEqual(recs[-1]['status'], 'accepted')  # exactly the cap: still confirmed
+
+    def test_move_on_a_later_start_picture_rejects_the_start_under_agree1(self):
+        _, recs, summ, _ = self.run_hand([(START, None, 2), (AFTER_E4, 'e2e4', 1)], {1: AFTER_E4, 2: AFTER_E4}, n=1)
+        self.assertEqual(recs[1]['startCheck'], 'contradicts')
+        self.assertEqual(recs[1]['status'], 'start-rejected')
+        self.assertFalse(summ['startAccepted'])
+        self.assertEqual(summ['wrongAccepted'], 0)
+
+    def test_stale_unchanged_counting_with_and_without_confirmation(self):
+        # the e4 position is misread as "nothing moved" on all three pictures
+        for n, confirmed in ((1, [True, True, True]), (2, [False, True, True])):
+            _, recs, summ, _ = self.run_hand([(START, None, 1), (AFTER_E4, 'e2e4', 3)],
+                                             {1: START, 2: START, 3: START}, n=n)
+            verdicts = [r['verdict'] for r in recs[1:]]
+            self.assertEqual([v.get('staleUnchanged') for v in verdicts], [True] * 3)
+            self.assertEqual([v.get('staleConfirmed') for v in verdicts], confirmed, n)
+            self.assertEqual(summ['wrongAccepted'], 3)
+        b = ev._empty_bucket()
+        for v in verdicts:
+            ev._add(b, v, 0)
+        self.assertEqual((b['staleUnchanged'], b['staleConfirmed'], b['wrongMoveAccepted']), (3, 2, 0))
+        # a single misread right after a confirmed move is not reported as current
+        _, recs, _, _ = self.run_hand([(START, None, 1), (AFTER_E4, 'e2e4', 2), (AFTER_E5, 'e7e5', 2)],
+                                      {1: AFTER_E4, 2: AFTER_E4, 3: AFTER_E4, 4: AFTER_E5}, n=2)
+        self.assertTrue(recs[2]['currentConfirmed'])       # move confirmed by agreement
+        self.assertTrue(recs[3]['verdict'].get('staleUnchanged'))
+        self.assertFalse(recs[3]['currentConfirmed'])      # one stale "unchanged" is not enough
+
+    def test_self_aware_mode_only_reviews_when_the_pipeline_asks(self):
+        positions = [(START, None, 1), (AFTER_E4, 'e2e4', 2), (AFTER_E5, 'e7e5', 2)]
+        readings = {1: START, 2: START, 3: AFTER_E5, 4: AFTER_E5}  # e4 silently missed (read as unchanged)
+        _, recs, summ, pos = self.run_hand(positions, readings, n=2, mode='self-aware')
+        self.assertEqual([r.get('reviewRequested') for r in recs[1:]], [None, None, 'no-legal-explanation', None])
+        self.assertEqual(summ['reReviews'], 1)
+        self.assertEqual([p['tracked'] for p in pos], [False, True])
+        self.assertEqual(recs[-1]['status'], 'accepted')
+        # the oracle mode would have reset at the end of the missed e4 position instead
+        _, _, summ_rr, _ = self.run_hand(positions, readings, n=2, mode='re-review')
+        self.assertEqual(summ_rr['reReviews'], 1)
+        # withheld pictures in a row trigger a request at the policy count
+        k = sp.POLICY['SELF_REVIEW_AFTER_WITHHELD']
+        _, recs, summ, _ = self.run_hand([(START, None, 1), (AFTER_E4, 'e2e4', k)], {}, n=2, mode='self-aware',
+                                         dets={i: {'found': False} for i in range(1, k + 1)})
+        self.assertEqual([bool(r.get('reviewRequested')) for r in recs[1:]], [False] * (k - 1) + [True])
+
+    def test_v3_runs_through_the_whole_pipeline_on_a_smoke2_game(self):
+        root = Path('/Users/alexmunzon/chess-builds/pipeline-2026-11-15/scenes-v2')
+        if not (root / 'truth/games.json').exists() or importlib.util.find_spec('occupancy_classifier_v3') is None:
+            self.skipTest('scenes-v2 or v3 classifier not present')
+        game = next(g for g in sp.load_games(root)['games'] if g['id'] == 'smoke2-g00')
+        try:
+            sp.set_classifier('v3')
+            dets = sp.run_detector([root / f['file'] for f in game['frames']])
+            with agree(2):
+                recs, summ, pos = ev.run_mode('strict', root, game, dets, self.bridge, {},
+                                              lambda f: (lambda: sp.load_image(root / f['file'])[0]))
+        finally:
+            sp.set_classifier('v2')
+        self.assertTrue(summ['startAccepted'])
+        self.assertEqual(summ['wrongAccepted'], 0)
+        self.assertGreaterEqual(sum(p['tracked'] for p in pos), len(pos) - 1)
 
 
 class ScorerTests(unittest.TestCase):
@@ -375,9 +516,9 @@ class ScorerTests(unittest.TestCase):
     def test_bucket_counts(self):
         b = ev._empty_bucket()
         for v in ({'verdict': 'WRONG-ACCEPTED'}, {'verdict': 'correct-accepted'},
-                  {'verdict': 'withheld', 'cause': 'detector'}):
+                  {'verdict': 'withheld', 'cause': 'detector-error'}):
             ev._add(b, v, 0)
-        self.assertEqual((b['wrongAccepted'], b['correctAccepted'], b['withheldByCause']['detector']), (1, 1, 1))
+        self.assertEqual((b['wrongAccepted'], b['correctAccepted'], b['withheldByCause']['detector-error']), (1, 1, 1))
 
 
 if __name__ == '__main__':

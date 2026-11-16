@@ -22,6 +22,14 @@ nearest the image top-left; which side is white is out of scope (corners are up 
 5. Abstain unless: ≥16 lattice points, span ≥4 both ways, checker contrast ≥8 gray levels,
    cell agreement ≥0.80, ring ratio ≤0.45, placement margin ≥0.35 when several blocks fit, and
    confidence = agreement × (1 − ring) × min(1, points/25) × margin factor ≥0.55.
+6. Curved-edge check (added 2026-11-16, see `docs/SCREEN_BOARD_STRESS.md`): the refined grid points are
+   also fitted with a homography plus one radial lens term whose centre is fitted too (anywhere in
+   the picture); if the outer corners of that fit and of the straight fit differ by more than 2.5% of
+   the board side, or any value is not finite, abstain (`board-edges-curved` / `lens-fit-failed`).
+   Output diagnostics gain `lensK1`, `lensK2` (always 0), `lensCentre` and `curveShiftPctSide` (null
+   when not finite); corners are unchanged. Checks without pictures: `Checks/CurveCheck.swift`
+   (build: `swiftc -O -parse-as-library GrayImage.swift Homography.swift ScreenBoardDetector.swift
+   Checks/CurveCheck.swift -o curve-check`).
 Parameters were set on dev only; held-out was run once after freezing.
 
 ## Scenes and run (outputs in `/Users/alexmunzon/chess-builds/screen-board-2026-11-15/`)
@@ -58,8 +66,8 @@ beside the board caused ring rejections in dev until ring cells were densely sam
 
 ## Honest limits
 
-- Simulated scenes, not glasses footage: flat screen, no lens distortion, rolling shutter or real
-  moiré; refresh banding is a crude sine and the hand a crude blob.
+- Simulated scenes, not glasses footage: flat screen, no rolling shutter or real moiré; lens
+  distortion only as one simulated radial term (the finder rejects strong curvature, it does not undo it); refresh banding is a crude sine and the hand a crude blob.
 - One flat piece set that leaves square corners clear; real chess sites (big pieces, highlights,
   arrows, square coordinates) are untested and the likeliest way this breaks.
 - Untested: boards <15% of frame width, motion blur. Confidence is heuristic, not calibrated.
