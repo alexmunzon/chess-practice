@@ -585,9 +585,8 @@ class Guard(unittest.TestCase):
 
     def test_automatic_rebaseline_after_a_withhold_is_the_documented_limit(self):
         # the review's auto_rebase case: the knight really moved f3-g5 and the queen is still on e2, but the tracker
-        # also believes the queen vanished. The guard withholds the move; a re-baseline on the same picture without a
-        # human review is ACCEPTED (queens are never named), and the next move then gets no objection. This test pins
-        # the limit down; it is why the method may only be called after a person reviewed the position.
+        # also believes the queen vanished. The guard withholds the move. Until round 7 an automatic re-baseline on
+        # the same picture was accepted; since round 8 it withholds, because e2 is called empty and not seen empty.
         t = self.truth
         truth = moved(t, ('f3', 'g5'))
         believed = moved(t, ('f3', 'g5'), drop=['e2'])
@@ -597,8 +596,16 @@ class Guard(unittest.TestCase):
         outs = [g.check_after_move(img, CB, t, believed) for _ in range(2)]
         self.assertEqual([o.reasons for o in outs], [('king-or-queen-moved: never checkable',)] * 2)
         r = [g.rebaseline_after_human_review(img, CB, believed) for _ in range(2)][-1]
+        self.assertEqual(r.reasons, ('square called empty not seen empty: e2',))
+        self.assertEqual(g._baseline, t)
+        # the limit that remains (pinned): the tracker believes the white king and queen swapped squares (e1, e2);
+        # both squares hold a piece and the reader never names kings or queens, so an automatic re-baseline on the
+        # same picture is ACCEPTED, and the next move then gets no objection. This is why the method may only be
+        # called after a person reviewed the position.
+        believed = moved(truth, put=[('e1', 'Q'), ('e2', 'K')])
+        r = [g.rebaseline_after_human_review(img, CB, believed) for _ in range(2)][-1]
         self.assertIs(r.must_withhold(), False)                               # the limit: accepted without a review
-        self.assertNotIn('e2', g._baseline)
+        self.assertEqual(g._baseline['e1'], 'Q')
         nxt = moved(believed, ('c6', 'd4'))
         img2 = render(fen_of(moved(truth, ('c6', 'd4'))), scene(QUAD_B))
         outs = [g.check_after_move(img2, CB, believed, nxt) for _ in range(2)]
@@ -941,6 +948,86 @@ class Guard(unittest.TestCase):
         self.assertEqual(g.check_after_move(pic_a1, CB, t, a1).reasons, ('before-differs-from-baseline',))
         outs = [g.check_after_move(pic_b1, CB, a1, b1) for _ in range(2)]
         self.assertEqual([o.must_withhold() for o in outs], [True, False])
+
+    # ---- round 8 ------------------------------------------------------------------------------------------------
+    def test_rebaseline_refuses_a_piece_on_a_square_called_empty_under_corner_jitter(self):
+        # the seventh review's atk7b/atk7c: the guard saw X; one piece moved to an empty square (picture Y); a review
+        # claiming X was accepted because the square where the piece really stands read 'thin-runner-up' (not
+        # 'unconfirmed') under jittered corners. Every square the claim calls empty must now read 'no-piece-seen'.
+        def jitter(px, seed):
+            r = np.random.default_rng(seed)
+            return [list(np.asarray(p) + r.uniform(-px, px, 2)) for p in CB]
+        for fen, a, b, px, seed in (('rn1qkbnr/1Ppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w - - 0 1', 'f1', 'b6', 2, 635513),
+                                    ('3r1rk1/pp1nbppp/4pn2/5b2/3P4/2N1B3/PPP2PPP/R2QKBNR w - - 0 1', 'a2', 'd5', 2, 15238),
+                                    ('rn1qkbnr/1Ppppppp/8/8/8/8/1PPPPPPP/RNBQKBNR w - - 0 1', 'f1', 'f3', 5, 11487)):
+            x = pc.placement(fen)
+            y = moved(x, (a, b))
+            corners = jitter(px, seed)
+            g = self.guard()
+            g.check(picture_of(x), corners, x)                                 # the guard has just seen X
+            out = g.rebaseline_after_human_review(picture_of(y), corners, x)  # picture Y, claiming X
+            self.assertIs(out.must_withhold(), True, (a, b))
+            self.assertIn('square called empty not seen empty: ' + b, out.reasons, (a, b))
+            self.assertEqual(g._baseline, pc.placement(START), (a, b))
+
+    def test_rebaseline_refuses_a_king_or_queen_capture_hidden_in_the_claim(self):
+        # the seventh review's atk7d: a king or queen captured a pawn, knight or bishop (picture Y) and the review
+        # claims the position before the capture (X). The capturer's old square reads 'no-piece-seen' although the
+        # claim calls it occupied; without the rule the captured piece stayed as a phantom in the baseline.
+        t = self.truth
+        x2 = moved(t, drop=['a7'], put=[('d2', 'n')])                         # a black knight the white king can take
+        cases = (('Q e2xe5', t, moved(t, ('e2', 'e5')), 'e2'), ('q e7xe4', t, moved(t, ('e7', 'e4')), 'e7'),
+                 ('Q e2xc6', t, moved(t, ('e2', 'c6')), 'e2'), ('K e1xd2', x2, moved(x2, ('e1', 'd2')), 'e1'))
+        for name, x, y, old in cases:
+            for seen in ('x', 'y'):
+                g = self.guard()
+                g.check(picture_of(x if seen == 'x' else y), CB, x)
+                out = g.rebaseline_after_human_review(picture_of(y), CB, x)
+                self.assertIs(out.must_withhold(), True, (name, seen))
+                self.assertIn('square called occupied seen without a piece: ' + old, out.reasons, (name, seen))
+                self.assertEqual(g._baseline, pc.placement(START), (name, seen))
+            # the honest claim of the same picture is accepted
+            self.assertIs(review(g, picture_of(y), CB, y).must_withhold(), False, name)
+            self.assertEqual(g._baseline, y, name)
+
+    def test_knight_moving_diagonally_withholds(self):
+        # mutant m11 of the seventh review (a knight may also move one or two squares diagonally) survived the suite
+        t = self.truth
+        g = self.guard()
+        self.assertIs(review(g, self.mid, CB, t).must_withhold(), False)
+        # one or two squares diagonally, onto an empty square or (c6xe4) onto an enemy piece
+        for a, b in (('f3', 'g4'), ('f3', 'h5'), ('f3', 'd1'), ('c6', 'd5'), ('c6', 'e4')):
+            with self.assertRaises(pg._Malformed, msg=(a, b)) as cm:
+                pg._move_arrival(pg._believed(t), pg._believed(moved(t, (a, b))))
+            self.assertTrue(str(cm.exception).startswith(f'not-a-single-move: {t[a]} cannot go {a}-{b}'), cm.exception)
+        for b in ('g4', 'h5'):
+            after = moved(t, ('f3', b))
+            outs = [g.check_after_move(picture_of(after), CB, t, after) for _ in range(2)]
+            self.assertEqual([o.must_withhold() for o in outs], [True, True], b)
+            self.assertTrue(all(o.reasons[0].startswith('not-a-single-move: N cannot go f3-' + b) for o in outs), b)
+            self.assertEqual(g._baseline, t, b)
+
+
+    def test_rebaseline_empty_evidence_rule_independently_withholds(self):
+        # Fault injection at the reader boundary: all occupied squares remain correct, but one claimed empty
+        # square is unsure. Unlike the move fixtures, no vacated occupied square can mask removal of this rule.
+        g = self.guard()
+        settled(g, self.mid, CB, self.truth)
+        reading = copy.deepcopy(g._previous)
+        self.assertNotIn('a3', self.truth)
+        self.assertEqual(reading['a3']['reason'], 'no-piece-seen')
+        baseline = dict(g._baseline)
+        for reason in ('thin-runner-up', 'thin-evidence'):
+            reading['a3'].update(label='unsure', reason=reason)
+            with mock.patch.object(pg.reader, 'read', return_value=reading):
+                out = g.rebaseline_after_human_review(self.mid, CB, self.truth)
+            self.assertIs(out.must_withhold(), True, reason)
+            self.assertEqual(g._baseline, baseline, reason)
+        reading['a3'].update(label='unsure', reason='no-piece-seen')
+        with mock.patch.object(pg.reader, 'read', return_value=reading):
+            out = g.rebaseline_after_human_review(self.mid, CB, self.truth)
+        self.assertIs(out.must_withhold(), False)  # positive control: the test can accept correct evidence
+        self.assertEqual(g._baseline, self.truth)
 
 
 if __name__ == '__main__':

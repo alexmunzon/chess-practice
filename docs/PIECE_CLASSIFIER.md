@@ -384,7 +384,7 @@ round 1: `1e04c76e...7974a622e`; after round 2 (below): see "Round 2". v1 is unc
    or a square believed empty that the reader did not see as clearly empty gives `cannot-tell` overall; an objection
    is kept. `compare` now also returns a `reason`.
 
-## The guard: `scripts/recognition/piece_guard.py` (as of round 7)
+## The guard: `scripts/recognition/piece_guard.py` (round 8 candidate; independent review pending)
 **The one caller pattern:** `if out.must_withhold(): pause advice` (reasons in `out.reasons`), read at once;
 otherwise change nothing. `no objection` is no information and must never restore or grant advice.
 
@@ -439,11 +439,22 @@ withhold there is normal), but any later move withholds until the caller calls
 a full check of it answers no objection **and the picture gives real evidence for it**: the reader must name,
 consistently with the reviewed position, at least `REBASELINE_NAMED_SHARE` (0.75) of the pieces it is able to name
 (pawns, knights, bishops and rooks of a colour whose six kinds were all learned at the start, each from at least
-`EVIDENCE_MIN` start squares; never kings or queens), and at least one; and no square may be `unconfirmed` by the
-reader (round 7: the previous picture showed another kind there, so the picture changed, and a changed square is
-"cannot tell" and could hide a piece the reviewed position lacks). On any objection, refused reading, invalid
-position, too little evidence (`too-little-evidence: n of m nameable pieces named`) or an unconfirmed square
-(`unconfirmed square (picture changed since the previous one): g5`) it withholds and leaves the baseline unchanged.
+`EVIDENCE_MIN` start squares; never kings or queens), and at least one; no square may be `unconfirmed` by the
+reader (round 7: the previous picture's best match there was another kind); every square the reviewed position calls
+empty must read `no-piece-seen` (round 8: the reader's best match there is an empty square by a clear margin); and no
+square it calls occupied, kings' and queens' squares included, may read `no-piece-seen` (round 8). On any objection,
+refused reading, invalid position, too little evidence (`too-little-evidence: n of m nameable pieces named`), an
+unconfirmed square (`unconfirmed square (picture changed since the previous one): g5`), a square called empty that
+was not seen empty (`square called empty not seen empty: b6`) or a square called occupied that was seen without a
+piece (`square called occupied seen without a piece: e2`) it withholds and leaves the baseline unchanged. The
+`unconfirmed` rule does not by itself detect every changed picture: under corner jitter the square where a moved
+piece really stands can read `thin-runner-up` instead (seventh review), which is why the empty-square rule was added.
+**What a re-baseline cannot see:** which piece stands on a square the reader does not name. The reader never names
+kings or queens, so a claim with a king and a queen of one colour swapped, or with a king or queen on a square where
+some other piece the reader is unsure of stands, is accepted; so is a wrong kind on an occupied square the reader is
+unsure about, as long as the 0.75 share is still met. A piece the claim invents on a really empty square is
+caught only when that square reads `no-piece-seen` (an empty square the reader is unsure about, for example
+`thin-runner-up`, lets it through).
 Call it on a picture the guard has just seen (a settled picture seen twice). **Known gap:** a position whose only
 pieces are kings and queens has 0 nameable pieces, so it can never be re-baselined (every attempt withholds). Without that rule a picture that shows nothing (degenerate corners, even collinear ones, make the
 reader say "cannot tell" on all 64 squares without refusing) gave no objection and moved the baseline to any valid
@@ -459,12 +470,18 @@ until a re-baseline after human review, and a next move from `believed_after` is
 can only add withholds. Moving the baseline on a withhold would let a move the guard could not check (for example a
 queen move that never happened) silently become the base for every later check.
 **Call `rebaseline_after_human_review` only after a person has reviewed the full position. Calling it automatically
-after a withhold defeats the guard.** The guard cannot see wrong kings or queens, or pieces invented on empty squares
-(the reader never names kings or queens and never says "empty"), so an unreviewed position with such errors is
-accepted. The review's case is pinned down in `test_automatic_rebaseline_after_a_withhold_is_the_documented_limit`:
-the knight really moved and the tracker also believes the queen vanished; the move withholds, an automatic
-re-baseline on the same picture is accepted, and the next move gets no objection. The old `check(..., rebaseline=True)`
-was removed; passing `rebaseline` now raises `TypeError`.
+after a withhold defeats the guard.** The guard cannot see wrong kings or queens on occupied squares, or a wrong kind
+where the reader is unsure, so an unreviewed position with such errors is accepted.
+**King or queen capture (seventh review; round 8 candidate):** a king or queen captured a pawn, knight or bishop and
+the review claimed the position before the capture. Round 7 accepted that in 48 of 56 attempts (`atk7d.py`) and in
+135 of 140 attempts of the wider sweep `atk8.py` (a king or queen moved onto an empty square or captured; 7 picture
+conditions); the captured piece then stayed in the baseline as a phantom piece and the king or queen stayed on its
+old square. The round 8 rules target both cases: the capturer's old square reads `no-piece-seen` although
+the claim calls it occupied, or its new square is not seen empty although the claim calls it empty. The old pinned
+case of `test_automatic_rebaseline_after_a_withhold_is_the_documented_limit` (the tracker believes the queen vanished
+while it still stands on e2) is now refused too, because e2 is called empty and is not seen empty; the test now pins
+the remaining limit instead (white king and queen swapped in the claim: accepted). The old
+`check(..., rebaseline=True)` was removed; passing `rebaseline` now raises `TypeError`.
 
 **The first picture after every move withholds; the second accepts.** The reader names a piece only when the previous
 picture's best match on that square was the same kind (its mid-move rule, rule 3 of v2), and the previous picture
@@ -670,3 +687,45 @@ near-equivalent); n12 and n17 caught. `atk5.py`, `atk4.py` 0 dangerous in every 
 `atk4b.py` identical to round 5. Cost unchanged: `cost_legal.py` table as in round 6 with re-baselines 50 of 50; the
 review's `cost6.py` identical before and after (midgame 12 of 12 and endgame 5 of 7 under each condition; 5 px corner
 jitter 11 of 12 and 3 of 7; the 2 endgame failures everywhere are the king-and-queen-only positions).
+
+
+## Round 8 recovery (2026-11-17, builder checks complete; review pending)
+
+The interrupted candidate has been recovered, but it is not connected to the app. Two rules are added only to
+`rebaseline_after_human_review`: every claimed-empty square must read `no-piece-seen`, and no claimed-occupied
+square may read `no-piece-seen`. Refusal leaves the baseline unchanged. Tests cover corner-jitter regressions,
+hidden king/queen captures, illegal knight diagonals, and an independent empty-square fault injection so removal
+of that rule cannot be masked by the occupied-square rule.
+
+**Evidence scope:** these image checks render artificial boards and supply corners calculated from the renderer's
+geometry (plus specified jitter). Those corners are unavailable to the real app, so the results are component
+diagnostics, not end-to-end camera accuracy or a forecast of the app's human-review cost. The legal-play fixture
+contains 8 games and 320 moves; all 320 moves and full resulting FENs were independently checked with the pinned
+chess.js rules. Re-baselines in the cost script simulate a person reviewing the full state; no person performed
+those reviews. No held-out images are used. Fresh builder logs are in
+`/Users/alexmunzon/Documents/Codex/2026-11-17/pr/work/guard-build/`.
+
+Builder checks on the recovered candidate (all synthetic diagnostics or mocked contracts):
+- Existing candidate unit suite: 35 of 35 passed; the subsequently added independent empty-evidence test passed
+  1 of 1. A combined 36-test run is left to the orchestrator's final check.
+- Round-seven code fails 2 of the 3 original new tests (jitter and hidden capture); the knight rule was already
+  correct. It also fails the later independent empty-evidence test.
+- Five targeted mutations are caught: omit the empty rule; omit the occupied rule; tolerate thin-runner-up on
+  claimed empty squares; exempt kings/queens from occupied checks; allow diagonal knight moves. Initially the
+  empty-rule mutation only changed the reported refusal reason, because the occupied rule masked it. The added
+  fault-injection test now proves actual incorrect acceptance when that rule is removed, with a passing positive
+  control when correct empty evidence is restored. This was a targeted five-mutation run, not the full mutation set.
+- `atk7b.py 11 350`: 0 wrong claims accepted of 350; `atk7d.py`: 0 of 56 hidden captures accepted;
+  `atk8.py 8 140`: 0 of 140 wrong king/queen relocation claims accepted. The scripts use synthetic corruptions
+  (not necessarily legal moves) to challenge the guard; they are not accuracy benchmarks.
+- `r5copy/cost_legal.py`: 50 of 320 legal moves withheld after two settled pictures (21 king moves, 20 queen moves,
+  7 castles, 2 queen promotions). All 50 simulated human re-baselines succeeded. Every first picture withheld
+  (320 of 320), as required by the reader's two-picture rule. Supplied true corners make this a component
+  diagnostic; do not present 50/320 as measured app-user cost.
+- Older unchanged attack families and the broad `cost7.py` picture-condition study were not rerun, to prioritize
+  the round-eight regressions and independent review. Their earlier evidence stays historical.
+
+Remaining limits: the guard does not identify kings or queens; same-colour king/queen swaps on occupied squares
+can still pass. It cannot re-baseline king-and-queen-only positions, and it requires a person's full state review.
+No camera, Simulator, phone, or held-out test was used for these results. The reader implementations and thresholds
+are unchanged. The guard remains disconnected from the app.

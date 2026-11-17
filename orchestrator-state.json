@@ -1,204 +1,259 @@
 {
- "purpose": "Machine-readable status for the next orchestrator session. FABLE-HANDOFF.md explains it in words; update both together. Every value here must be re-checked, not trusted.",
- "updated": "2026-11-17T11:25+01:00",
- "lastCommit": "2026-11-17 checkpoint (git log -1), NOT pushed; last pushed commit e482729 on private GitHub repo alexmunzon/chess-practice (remote origin)",
- "checkCommand": "scripts/check-all.sh",
- "lastKnownChecks": {
-  "checkAll": "11 of 11 suites at 2026-11-17 about 11:20 (orchestrator-run, final state; logs chess-builds/check-all-2026-11-17-final)",
-  "npm": "397 tests, 389 pass, 0 fail, 8 skipped (2026-11-17 07:15)",
-  "nativeRunAll": "5 of 5 suites, guard checks 21 of 21 (special-replay-2026-11-15/mocks/run-all.sh, orchestrator-run 2026-11-17)",
-  "trackerWiringTests": "33 of 33",
-  "phoneSelfTest": "33 of 33 at 2026-11-16 18:14, 1 of 1 run, normal build restored; NOT re-run with 2026-11-17 changes",
-  "simulatorSelfTest": "2026-11-17: 32 of 34 and 34 of 34 (build before the last two promotion fix rounds, page code only changed since); failures are slow engine searches",
-  "trackerTests": "97 tests, 96 pass, 0 fail, 1 skipped",
-  "pipelineTests": "48 of 48",
-  "readerV4Tests": "64 tests, 63 pass, 1 expected failure (known wrong square on flat boards)",
-  "pieceReaderV2Tests": "30 of 30",
-  "pieceGuardTests": "32 of 32 (round 7)",
-  "frameAgeTests": "8 of 8; mock video 21 of 21"
- },
- "frozen": {
-  "classifierV3Sha256": "16c14a0a889c34e675772af675755fdfa8c886d5432bfc2027aa0235ebc685c3",
-  "classifierV31Sha256": "c634a76de4b423996b9f847d99ce9c802b6c03ac18de60cb8558b485247926ee",
-  "pipelineRound3PolicyV3": "6626483d216a8ca0eb549bc6e88a44ba537930e25690a98604643b5df64b0e6a",
-  "note": "held-out scores so far were made with v3 (16c14a0a) and the round-2 pipeline; v3.1 is proven label-identical on development data only; stressheld was scored with pipeline 49d7ce83, scorer c7d4fdec, corner finder b5774046",
-  "classifierV4Sha256": "de58ef042a58243ce7919d52f885986a0c88aa8a73e61cdcbdbb26b33dbb474b (v4.3; v4.0 1e0830ba, v4.1 43ffc22a and v4.2 3d814e14 were each rejected by review)",
-  "occupancyTrackerRound4Sha256": "e8f1fba6bea01ebc8b5316c4e5ca964dbc91ae87106b8b48305d3166d399c228 (superseded by rounds 5 and 6)",
-  "cornerFinderRound2Sha256": "3292bcaeabd3bbd0c9e599f6f8f2ee2dc6debc8123388b4110d977e2b80d617c (reviewed: improvement, not a lens guard; not in the pipeline)",
-  "trackerRound7b": "04400009…770f",
-  "pieceReaderV1": "e5c31e2ef64f…",
-  "pieceReaderV2": "07632cb07154… (reviewed 2026-11-17, hardened after review; first reviewed version c19efcf5…)",
-  "pieceGuard": "17cf71610139… (round 7; six independent reviews of rounds 1-6, round 3 REJECTED, rounds 4-6 accept with conditions; round 7 closes round 6's one condition, not itself reviewed; NOT connected)"
- },
- "heldOutData": [
-  {
-   "split": "heldout",
-   "root": "pipeline-2026-11-15/scenes",
-   "status": "spent",
-   "scoredBy": "orchestrator",
-   "runs": [
-    "pipeline with classifier v2, one picture per position"
-   ]
+  "purpose": "Machine-readable status for the next orchestrator session. FABLE-HANDOFF.md explains it in words; update both together. Every value here must be re-checked, not trusted.",
+  "updated": "2026-11-17T17:18:29+01:00",
+  "lastCommit": "Resolve with git log -1; this verified checkpoint is committed after checks. Previous published HEAD was 53a8bfac9b917608b0f41af0190ad9da8c8b484f.",
+  "checkCommand": "scripts/check-all.sh",
+  "lastKnownChecks": {
+    "checkAll": "12 of 12 suites, parent-run final combined check, 2026-11-17T17:18:29+01:00",
+    "npm": "397 tests:389 pass,0 fail,8 skip",
+    "nativeRunAll": "5 of 5 suites, guard checks 21 of 21 (special-replay-2026-11-15/mocks/run-all.sh, orchestrator-run 2026-11-17)",
+    "trackerWiringTests": "33 of 33",
+    "phoneSelfTest": "34 of 34 updated working-tree app; parent-run17Nov16:49Madrid;1 earlier interrupted run; normal restored",
+    "simulatorSelfTest": "2026-11-17 afternoon controls: 24 of 34 and 28 of 34; failures are Simulator-only engine freezes (see slow-search-experiment-2026-11-17/FINDINGS.md)",
+    "trackerTests": "97 tests, 96 pass, 0 fail, 1 skipped",
+    "pipelineTests": "51 of 51 parent final suite",
+    "readerV4Tests": "64 tests, 63 pass, 1 expected failure (known wrong square on flat boards)",
+    "pieceReaderV2Tests": "30 of 30",
+    "pieceGuardTests": "36 of 36 parent final suite",
+    "frameAgeTests": "16 of 16 parent final suite; independent review accepted; parent1211/1211 extra checks and4/4 mutants",
+    "checkAllEnd": "10 of 11 suites at 2026-11-17 14:57-15:15 on the files as left (log chess-builds/check-all-2026-11-17-session3/end.log). The one failure: npm test 397 tests, 388 pass, 1 fail, 8 skipped; the failing test is a real-engine timing test in tests/prewarm-wiring.test.js that timed out at load about 41 (other programs on the Mac); re-run alone at load 6.6: 10 of 10. piece_guard ran 35 of 35 on the HALF-DONE round 8 file, which is not a reviewed state.",
+    "swiftGateCheck": "26 of 26 parent final suite; included by check-all on macOS"
   },
-  {
-   "split": "heldout2",
-   "root": "pipeline-2026-11-15/scenes-v2",
-   "status": "spent",
-   "scoredBy": "orchestrator",
-   "runs": [
-    "classifier v2",
-    "classifier v3"
-   ]
+  "frozen": {
+    "classifierV3Sha256": "16c14a0a889c34e675772af675755fdfa8c886d5432bfc2027aa0235ebc685c3",
+    "classifierV31Sha256": "c634a76de4b423996b9f847d99ce9c802b6c03ac18de60cb8558b485247926ee",
+    "pipelineRound3PolicyV3": "6626483d216a8ca0eb549bc6e88a44ba537930e25690a98604643b5df64b0e6a",
+    "note": "held-out scores so far were made with v3 (16c14a0a) and the round-2 pipeline; v3.1 is proven label-identical on development data only; stressheld was scored with pipeline 49d7ce83, scorer c7d4fdec, corner finder b5774046",
+    "classifierV4Sha256": "de58ef042a58243ce7919d52f885986a0c88aa8a73e61cdcbdbb26b33dbb474b (v4.3; v4.0 1e0830ba, v4.1 43ffc22a and v4.2 3d814e14 were each rejected by review)",
+    "occupancyTrackerRound4Sha256": "e8f1fba6bea01ebc8b5316c4e5ca964dbc91ae87106b8b48305d3166d399c228 (superseded by rounds 5 and 6)",
+    "cornerFinderRound2Sha256": "3292bcaeabd3bbd0c9e599f6f8f2ee2dc6debc8123388b4110d977e2b80d617c (reviewed: improvement, not a lens guard; not in the pipeline)",
+    "trackerRound7b": "04400009\u2026770f",
+    "pieceReaderV1": "e5c31e2ef64f\u2026",
+    "pieceReaderV2": "07632cb07154\u2026 (reviewed 2026-11-17, hardened after review; first reviewed version c19efcf5\u2026)",
+    "pieceGuard": "0cef7ffcc90b7f56721b0119b48902df99f344a176ca02fdc57cf48da4a7b281 (round8 reviewed; unconnected)"
   },
-  {
-   "split": "stressheld",
-   "root": "pipeline-2026-11-15/scenes-stress",
-   "status": "spent",
-   "scoredBy": "orchestrator",
-   "at": "2026-11-16T11:17-11:44+01:00",
-   "runs": [
-    "pipeline with reader v3.1 (c634a76d)",
-    "pipeline with reader v4.3 (de58ef04)"
-   ],
-   "result": {
-    "games": 36,
-    "agree2WrongMoves": {
-     "v3.1": 0,
-     "v4.3": 0
+  "heldOutData": [
+    {
+      "split": "heldout",
+      "root": "pipeline-2026-11-15/scenes",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "runs": [
+        "pipeline with classifier v2, one picture per position"
+      ]
     },
-    "agree1WrongMoves": {
-     "v3.1": 2,
-     "v4.3": 2
+    {
+      "split": "heldout2",
+      "root": "pipeline-2026-11-15/scenes-v2",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "runs": [
+        "classifier v2",
+        "classifier v3"
+      ]
     },
-    "startsAccepted": {
-     "v3.1": "28/36",
-     "v4.3": "30/36"
+    {
+      "split": "stressheld",
+      "root": "pipeline-2026-11-15/scenes-stress",
+      "status": "spent",
+      "scoredBy": "orchestrator",
+      "at": "2026-11-16T11:17-11:44+01:00",
+      "runs": [
+        "pipeline with reader v3.1 (c634a76d)",
+        "pipeline with reader v4.3 (de58ef04)"
+      ],
+      "result": {
+        "games": 36,
+        "agree2WrongMoves": {
+          "v3.1": 0,
+          "v4.3": 0
+        },
+        "agree1WrongMoves": {
+          "v3.1": 2,
+          "v4.3": 2
+        },
+        "startsAccepted": {
+          "v3.1": "28/36",
+          "v4.3": "30/36"
+        },
+        "reReviewsPer100PositionsAgree2": {
+          "v3.1": 20.9,
+          "v4.3": 26.8
+        }
+      },
+      "evidence": "pipeline-2026-11-15/pipeline/final-stressheld-v3.log and final-stressheld-v4.log"
     },
-    "reReviewsPer100PositionsAgree2": {
-     "v3.1": 20.9,
-     "v4.3": 26.8
+    {
+      "split": "heldout (single-position scenes)",
+      "root": "screen-board-2026-11-15",
+      "status": "spent",
+      "runs": [
+        "corner finder, before this session"
+      ]
     }
-   },
-   "evidence": "pipeline-2026-11-15/pipeline/final-stressheld-v3.log and final-stressheld-v4.log"
-  },
-  {
-   "split": "heldout (single-position scenes)",
-   "root": "screen-board-2026-11-15",
-   "status": "spent",
-   "runs": [
-    "corner finder, before this session"
-   ]
-  }
- ],
- "inFlightAtHandoff": [],
- "backlog": [
-  {
-   "id": 1,
-   "task": "default reader DECIDED 2026-11-16 (Alex): v3.1 default; v4.3 start backup is built and OFF (review verdict NO as first built, 11 of 107 not-the-start pictures still accepted with the self-check); open: switch the backup on or leave it off (recommendation: off); no held-out data is left",
-   "status": "decided; backup on/off waiting on Alex"
-  },
-  {
-   "id": 2,
-   "task": "swap corner finder bin-new2 into the pipeline under a new name, re-run development splits, then make it default",
-   "status": "not_started"
-  },
-  {
-   "id": 3,
-   "task": "lens undistortion before the corner finder",
-   "status": "not_started"
-  },
-  {
-   "id": 4,
-   "task": "motion blur in the square reader",
-   "status": "not_started"
-  },
-  {
-   "id": 5,
-   "task": "tracker: review round 6, then Alex decides on wiring",
-   "status": "blocked",
-   "blockedBy": "review + Alex"
-  },
-  {
-   "id": 6,
-   "task": "engine wiring low-severity leftovers; slow-search question",
-   "status": "not_started"
-  },
-  {
-   "id": 7,
-   "task": "frame age method 1 margin; needs real glasses",
-   "status": "blocked",
-   "blockedBy": "glasses approval"
-  },
-  {
-   "id": 8,
-   "task": "test hygiene: two pipeline tests leave v2 selected",
-   "status": "waiting on Alex"
-  },
-  {
-   "id": 9,
-   "task": "refresh PLAN.md, VERIFICATION.md, status page; engine-host-died WebKit test; evidence retention",
-   "status": "not_started"
-  }
- ],
- "capacity": {
-  "workers": "5-6",
-  "cpuHeavyMax": 2,
-  "simulatorMax": 1,
-  "note": "run uptime before launching a heavy worker; load reached 407 with 7 heavy workers; builder type used about 139K tokens for a fix round versus 245K-445K for general-purpose workers on comparable rounds (indicative); under the no-extra-usage rule run 2-3 workers when the 5-hour window is above 50%"
- },
- "waitingOnAlex": [
-  "commit and push of the afternoon session (ask each time)",
-  "piece reader round 2: go or wait (weekly usage 63-66% on 2026-11-16)",
-  "reader start backup: leave off (recommended) or switch on",
-  "slow engine search: accept or warm-up",
-  "try both Replay games by hand",
-  "camera and real-glasses approval",
-  "ChessReD dataset download",
-  "evidence retention for 31.5 GB"
- ],
- "stressdevResult": {
-  "reader": "v3",
-  "agree1WrongMoves": 5,
-  "agree2WrongMoves": 0,
-  "startsAccepted": "27/36",
-  "note": "all wrong moves from mid-move pictures; other piece styles 0/6 starts",
-  "evidence": "pipeline-2026-11-15/pipeline/r3-stressdev-v3.log"
- },
- "decisions": [
-  "two-picture agreement rule stays on",
-  "self-aware scoring mode is the headline",
-  "reader v3.1 is default; piece-in-transit rule off until reviewed at wiring",
-  "no code-ownership role (Alex, 2026-11-16)",
-  "workers use the lean builder type; reviews use code-reviewer",
-  "library start-up reader is v3 (2026-11-16)",
-  "no paid extra usage: stop launching at 70%, stop workers at 80% (Alex, 2026-11-16)",
-  "tracker is not wired in until Alex decides; piece-in-transit stays off",
-  "stressheld is scored only after v4.1 passes re-review",
-  "stressheld spent 2026-11-16; all held-out sets are now spent, new unseen pictures are needed for any further tuning claim",
-  "corner finder round 2 may replace the pipeline finder as an improvement, not as a lens guard",
-  "2026-11-16 Alex: tracker gets one more fix round then is wired in switched off (done, reviewed, phone 33 of 33)",
-  "2026-11-16 Alex: v3.1 stays default, v4.3 only as start backup (built, off)",
-  "2026-11-16 Alex: private GitHub repo created and main pushed; every later push needs his words",
-  "tracker: any failed tracker request revokes; only a new human review restores trust",
-  "piece reader v1 may only ever withhold advice, never confirm"
- ],
- "session2026-11-17": {
-  "done": [
-   "backlog 6 engine leftovers (reviewed)",
-   "backlog 7 frame-age harness round 2 (not reviewed)",
-   "backlog 8 test hygiene",
-   "backlog 2 corner finder selectable, default unchanged",
-   "backlog 12 reader v4 tests + known-wrong finding",
-   "backlog 11 v3.1 start self-check built OFF (fixes little)",
-   "backlog 5 answerPromotion wired OFF (reviewed twice)",
-   "piece reader v2 review + hardening",
-   "piece guard rounds 1-4",
-   "frame-age review + round 3 (harness can fail; two real weaknesses of method 1 found)",
-   "piece guard rounds 5-6",
-   "piece guard round 7"
   ],
-  "inFlight": [],
-  "uncommitted": "nothing at commit time (committed 2026-11-17 about 11:40 on Alex's words 'Yes, commit'; not pushed)",
-  "usage": "Alex said 2026-11-17 'keep running ignore usage'; orchestrator still stops if extra-usage spend rises above $49.20 (paid spend needs his explicit words)"
- }
+  "inFlightAtHandoff": [],
+  "backlog": [
+    {
+      "id": 10,
+      "task": "Piece guard round8 complete; integration remains separate and requires decision/evidence",
+      "status": "completed round8 and reviewed; unconnected"
+    },
+    {
+      "id": 5,
+      "task": "close the two-kind command gap in app code, turn gate check 21 into a refusal check, bound check 25, extend check 21 to all engine kinds; third review; phone self-test after; then call check-native.sh from check-all.sh",
+      "status": "completed, reviewed, parent native26/26 and phone 34/34; check-all integration done"
+    },
+    {
+      "id": "kq",
+      "task": "king-and-queen naming study (decides the piece guard cost question)",
+      "status": "audit complete; experiment incomplete; keep naming disabled"
+    },
+    {
+      "id": 2,
+      "task": "corner finder round 2 as default: selectable today, default unchanged",
+      "status": "completed:round2 default, custom override portable,4/4 splits match,376/376 files"
+    },
+    {
+      "id": 7,
+      "task": "frame-age method 1: session value + check digits done and reviewed in simulation; next needs real glasses",
+      "status": "simulation complete and freshly reviewed; real-glasses work unapproved"
+    },
+    {
+      "id": 6,
+      "task": "slow engine search",
+      "status": "PARKED by Alex 2026-11-17: Simulator-only engine freeze, cause not established, phone 0 of 470"
+    },
+    {
+      "id": 3,
+      "task": "lens undistortion before the corner finder",
+      "status": "not_started, needs new inputs"
+    },
+    {
+      "id": 4,
+      "task": "motion blur in the square reader",
+      "status": "not_started, needs new inputs"
+    },
+    {
+      "id": 1,
+      "task": "default reader decided (v3.1); v4.3 start backup built and OFF",
+      "status": "decided; backup stays off unless Alex says otherwise"
+    },
+    {
+      "id": 9,
+      "task": "docs refresh (PLAN.md, VERIFICATION.md, engine docs: remove \"35x slower\" and \"load\" as the cause), status page, evidence retention",
+      "status": "completed docs and local status source; hosted artifact not republished"
+    }
+  ],
+  "capacity": {
+    "workers": "5-6",
+    "cpuHeavyMax": 2,
+    "simulatorMax": 1,
+    "note": "run uptime before launching a heavy worker; load reached 407 with 7 heavy workers; builder type used about 139K tokens for a fix round versus 245K-445K for general-purpose workers on comparable rounds (indicative); under the no-extra-usage rule run 2-3 workers when the 5-hour window is above 50%"
+  },
+  "waitingOnAlex": [
+    "New appropriate image inputs for lens/motion/held-out research",
+    "Real camera/glasses/audio authorization before any hardware study",
+    "Evidence deletion approval if cleanup desired"
+  ],
+  "stressdevResult": {
+    "reader": "v3",
+    "agree1WrongMoves": 5,
+    "agree2WrongMoves": 0,
+    "startsAccepted": "27/36",
+    "note": "all wrong moves from mid-move pictures; other piece styles 0/6 starts",
+    "evidence": "pipeline-2026-11-15/pipeline/r3-stressdev-v3.log"
+  },
+  "decisions": [
+    "two-picture agreement rule stays on",
+    "self-aware scoring mode is the headline",
+    "reader v3.1 is default; piece-in-transit rule off until reviewed at wiring",
+    "no code-ownership role (Alex, 2026-11-16)",
+    "workers use the lean builder type; reviews use code-reviewer",
+    "library start-up reader is v3 (2026-11-16)",
+    "no paid extra usage: stop launching at 70%, stop workers at 80% (Alex, 2026-11-16)",
+    "tracker is not wired in until Alex decides; piece-in-transit stays off",
+    "stressheld is scored only after v4.1 passes re-review",
+    "stressheld spent 2026-11-16; all held-out sets are now spent, new unseen pictures are needed for any further tuning claim",
+    "corner finder round 2 may replace the pipeline finder as an improvement, not as a lens guard",
+    "2026-11-16 Alex: tracker gets one more fix round then is wired in switched off (done, reviewed, phone 33 of 33)",
+    "2026-11-16 Alex: v3.1 stays default, v4.3 only as start backup (built, off)",
+    "2026-11-16 Alex: private GitHub repo created and main pushed; every later push needs his words",
+    "tracker: any failed tracker request revokes; only a new human review restores trust",
+    "piece reader v1 may only ever withhold advice, never confirm",
+    "2026-11-17 Alex: weekly 70%/80% usage stop lines dropped (\"just drop that guardrail\"); paid-spend stop stays; orchestrator stops launching at 95% weekly (its own line)",
+    "2026-11-17 Alex: slow engine search parked as a Simulator-only freeze after three experiment rounds",
+    "2026-11-17 ChatGPT: corner round2 default chosen under delegated decision; verified4/4 development splits",
+    "2026-11-17: K/Q naming stays disabled after evidence audit; prototype scores not app accuracy",
+    "2026-11-17 Alex: after the test make a push to git for all the progress"
+  ],
+  "session2026-11-17": {
+    "done": [
+      "backlog 6 engine leftovers (reviewed)",
+      "backlog 7 frame-age harness round 2 (not reviewed)",
+      "backlog 8 test hygiene",
+      "backlog 2 corner finder selectable, default unchanged",
+      "backlog 12 reader v4 tests + known-wrong finding",
+      "backlog 11 v3.1 start self-check built OFF (fixes little)",
+      "backlog 5 answerPromotion wired OFF (reviewed twice)",
+      "piece reader v2 review + hardening",
+      "piece guard rounds 1-4",
+      "frame-age review + round 3 (harness can fail; two real weaknesses of method 1 found)",
+      "piece guard rounds 5-6",
+      "piece guard round 7"
+    ],
+    "inFlight": [],
+    "uncommitted": "only the three note edits that record the push (CLAUDE.md, FABLE-HANDOFF.md, orchestrator-state.json)",
+    "usage": "Alex said 2026-11-17 'keep running ignore usage'; orchestrator still stops if extra-usage spend rises above $49.20 (paid spend needs his explicit words)"
+  },
+  "session2026-11-17-afternoon": {
+    "done": [
+      "phone self-test 34 of 34 x2",
+      "slow-search study + three experiment rounds (parked)",
+      "piece guard seventh review",
+      "freshness code + review + fix round",
+      "Swift gate check + two reviews + one fix round"
+    ],
+    "stoppedByAlex": "2026-11-17 about 14:55 (\"stop all work now\"); three workers stopped; see inFlightAtHandoff",
+    "usage": "weekly 87% at 14:50, resets 2026-11-19 07:00 Madrid; extra-usage spend 49.20 USD, unchanged all session",
+    "uncommitted": "see the table at the top of FABLE-HANDOFF.md"
+  },
+  "repositoryVisibility": "public (confirmed GitHub settings 2026-11-17 after explicit user approval; no new push in build sprint)",
+  "session2026-11-17-chatgpt": {
+    "goal": "Professional, accurate public repository and scoped safety fixes; user clarified code quality for GitHub readers, not a visual demo.",
+    "status": "verified_checkpoint_ready_for_authorized_publication",
+    "baselineChecks": {
+      "checkAll": "11/11 parent-run before round7 restoration",
+      "round7RestoredGuard": "32/32 parent-run",
+      "native": "26/26 parent-run; known duplicate-kind gap still pinned before fix"
+    },
+    "decisions": [
+      "Use ChatGPT workers, not Claude/Opus",
+      "Corner finder round2 selected as default, pending checks and review",
+      "Keep K/Q naming disabled; incomplete study does not justify policy change",
+      "Defer visual redesign; preserve proposed patch only",
+      "No new commit/push during sprint without final reviewed checkpoint"
+    ],
+    "workerOwnership": {
+      "guard_builder": "piece guard implementation/tests/docs",
+      "runtime_builder": "NativeEngineRuntime, TrackerGateChecks, check-native",
+      "corner_default": "pipeline finder selection/CLIs/tests/docs",
+      "repo_docs": "README, PLAN, VERIFICATION, PREWARMED_ENGINE",
+      "ui_polish": "CI and test dependencies after restoring visual edits",
+      "guard_review": "read-only review",
+      "runtime_review": "read-only review"
+    },
+    "usage": "Last observed Codex weekly65%, ordinary usage allowed, no credits; five-hour bucket unavailable",
+    "checkpoint": "/Users/alexmunzon/Documents/Codex/2026-11-17/pr/work/session/CHECKPOINT.md",
+    "heldOut": "No additional held-out data accessed or spent",
+    "kqAudit": "Decision memo complete, experimental study incomplete; exact-corner and truth-selected diagnostics cannot establish deployed accuracy.",
+    "finalCheck": "12/12",
+    "phone": "34/34 updated app; normal restored",
+    "inFlight": [],
+    "publication": {
+      "authorized": true,
+      "target": "alexmunzon/chess-practice main",
+      "note": "User requested all progress pushed after tests. Verify actual commit/publication through Git history and GitHub Actions."
+    }
+  }
 }

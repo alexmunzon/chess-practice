@@ -279,3 +279,19 @@ Local commit `a13ed1c` holds everything up to the stopping point. After it: Repl
 Phone now has the **optimized normal build** (unsigned `5c9ce79e…17745d`, signed `4d43ca0d…0ddf0c`, 0 self-test strings, Replay mode included). Not hand-tested. All of this is uncommitted on top of `1e34c5c`.
 
 **Next:** join screen detection + occupancy classifier + move inference into one offline pipeline on simulated scenes; swap in the special-move replay game; Mock Device Kit capture path; decide on the engine search budget now that recognition is no longer the bottleneck.
+
+
+## Active packet — 2026-11-17 ChatGPT build sprint
+
+Goal: finish scoped safety fixes and make public repository documentation accurate and usable. User clarified GitHub code quality is priority, not a visual demo.
+
+Owned changes: guard builder (guard, guard tests/docs), runtime builder (NativeEngineRuntime, TrackerGateChecks, check-native), corner builder (pipeline default/tests/docs), documentation worker (README/PLAN/VERIFICATION/engine doc). Parent integrates only after fresh review. Detailed live checkpoint: /Users/alexmunzon/Documents/Codex/2026-11-17/pr/work/session/CHECKPOINT.md.
+
+Constraints: no app tracker or piece guard activation; no held-out reuse, camera, audio or glasses; no new commit/push in this packet. Repository visibility is now PUBLIC, confirmed in GitHub after explicit user approval. Historical references to private repository describe prior state. User switched work to ChatGPT; old Claude usage/model instructions no longer describe this session.
+
+Baseline evidence: parent check-all 11/11 before guard restoration; native26/26 with known duplicate-kind gap; restored round7 guard32/32. Interrupted round8 files preserved in workspace before restoration. Builders now work on fresh fixes. Acceptance: old-code failures and mutation checks for new guard/runtime properties, fresh independent review each fix round, parent rerun key checks and final full check. Stop condition: tested/reviewed bounded changes or genuine unmet dependency; record unverified cases explicitly.
+
+
+## Completed ChatGPT packet — 2026-11-17T17:18:29+01:00
+
+Final combined checks 12/12 on frozen reviewed source; phone 34/34, normal restored. All workers checkpointed, no jobs running. Full completed record: SESSION-HANDOFF-2026-11-17.md. Parent verified source fingerprints before publication. User explicitly requested push all progress after tests; publication follows this checkpoint. No held-out data reused. Remaining research and permissions are recorded in the session handoff.

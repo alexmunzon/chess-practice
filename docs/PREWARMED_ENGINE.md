@@ -1,9 +1,9 @@
-# Pre-started engine worker (Worker L, 2026-11-16, revised after review)
+# Pre-started engine worker
 
 `src/core/prewarmed-engine.js`: `createPrewarmedAnalyzer({createWorker, clock|now, warmupNodes=5000,
 maxIdleMs=60000, prewarmTimeoutMs=10000, handoverTimeoutMs=1000})` -> `{prewarm({signal}), analyze, dispose,
-state}`. Not in the phone bundle. Tests: `tests/prewarmed-engine.test.js`. Evidence:
-`/Users/alexmunzon/chess-builds/prewarmed-engine-2026-11-16/` (round 2 in `round2/`). Node only.
+state}`. Wired into the local phone runtime. Tests: `tests/prewarmed-engine.test.js`. Evidence:
+`/Users/alexmunzon/chess-builds/prewarmed-engine-2026-11-16/` (round 2 in `round2/`) records the original Node experiments. Later phone evidence is separate; see the current verification record.
 
 ## Kept from `createWorkerAnalyzer` (fresh path is a copy; its mock tests are copied)
 Confirmation, six-field legal FEN, limits and deadlines checked before any worker; terminal position -> no
@@ -68,7 +68,7 @@ the caller's `requestId` and FEN.
   --test-name-pattern=opt-in tests/prewarmed-engine.test.js` (add `PREWARM_IDENTITY_RECORDED=<round-1
   result-identity.json>` to halve it).
 
-## How to wire it in (later packet)
+## Integration checklist (implemented; retained as a source map)
 1. `runtime.js`: `const engine = createPrewarmedAnalyzer({createWorker})`; `DeviceBackend({analyzer:
    engine.analyze})`; expose `prewarm`/`cancelPrewarm` (one AbortController); `shutdown()` calls `dispose()`.
 2. `device-backend.js`: `analyze` takes exactly one of `movetimeMs` (50-3000) or `nodes` (1000-2000000).
@@ -76,6 +76,10 @@ the caller's `requestId` and FEN.
 4. Swift: node budget on `AnalysisRequest`; `LocalChessAdapters.analyze` sends `nodes: 100000`; range guard.
 5. Flow: `prewarm` when the review screen opens; cancel on leaving the mode, backgrounding, shutdown.
 
-## Not verified
-WKWebView/JavaScriptCore; the phone; iOS suspending or killing an idle spare (covered by the idle check
-and fallback, untested on device); phone timings; round-2 move identity (see above).
+## Current verification and limits — November 17, 2026
+
+The engine is integrated with the iPhone app. The committed `53a8bfa` build passed 34 of 34 phone self-test checks in two complete runs on November 17 (scripted review, synthetic pictures). Engine searches in those runs were typically 0.16–0.17 seconds; this is a bounded observed sample, not a timing guarantee. Evidence: `chess-builds/phone-selftest-2026-11-17/` outside the repository; [verification record](VERIFICATION.md).
+
+In-flow Simulator instrumentation subsequently found intermittent engine freezes: 18 of 21 misses searched at normal speed, then went silent; three never answered the first command. The earlier “35x slower” description and attribution to machine load are superseded. The cause remains unresolved, and investigation is parked. The broader recorded phone sample had zero misses in 470 searches; that is not proof against all phone failures. Evidence: `chess-builds/slow-search-experiment-2026-11-17/FINDINGS.md`.
+
+Specific behavior when iOS suspends or kills an idle spare is not comprehensively device-tested. Idle checks and fallback logic are protections, not a substitute for that test. Original Node comparison runs above retain their original scope; do not treat them as phone results or repeat them on held-out data to tune the engine.

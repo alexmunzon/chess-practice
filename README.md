@@ -1,86 +1,120 @@
 # Chess Companion
 
-A local prototype toward live Ray-Ban Meta Gen 1 chess assistance. The user-selected target is an entirely **iPhone-local runtime** on iPhone 17 / iOS 27.2: capture, recognition, legal state tracking, Stockfish and speech, with no Mac runtime service. The current computer app remains a development test bed. Reliable physical-board recognition and glasses capture/audio are not ready. The old blackjack project is preserved alongside this repository.
+Offline chess study with local Stockfish analysis and explicit human review of the board.
 
-## Run
+Chess Companion combines an iPhone app, a browser development interface, and a research pipeline for reading chessboard images. The working iPhone flows are **Study** (review a saved position, then analyze it) and **Replay** (step through bundled synthetic games). The project is for personal study and consensual practice—not undisclosed assistance in competitive games.
 
-The computer test bed requires Node.js 22 or newer. From this directory:
+**Status:** working offline prototype; experimental recognition and tracking. Live camera, physical-board recognition, and glasses integration are not ready for use. This repository contains source code, not a packaged app release.
+
+## Start locally
+
+The browser interface requires **Node.js 22 or newer** and npm. The test suite also invokes **Python 3.11 or newer with NumPy and Pillow**, pinned in [`requirements-test.txt`](requirements-test.txt). From the repository root:
 
 ```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --only-binary=:all: -r requirements-test.txt
 npm ci --ignore-scripts
 npm test
 npm start
 ```
 
-Open http://127.0.0.1:4174 in the same computer's browser. The server binds only to loopback. Installation fetches the exact locked official-registry dependencies; normal analysis runs locally. Stop the server with Ctrl+C. Nothing is deployed, submitted to a chess service or played against another person.
+The environment-activation command above is for macOS/Linux; on Windows use `.venv\Scripts\Activate.ps1` in PowerShell.
 
-## Simulation without a physical board
+Open [localhost:4174](http://127.0.0.1:4174). Stop the server with **Ctrl+C**.
 
-The simulation milestone is runnable. It generates legal games as pixels and video, recognizes a known vector piece family using visible corner markers, and tests complete-state tracking, Stockfish and a text speech sink. This is a screen-board baseline; physical recognition and glasses audio remain separate gates. Existing installed Python 3, Pillow, NumPy and FFmpeg are used; nothing is downloaded by these commands.
+Dependency installation uses the committed npm lockfile and Python version pins, and accesses the npm and PyPI registries. Normal chess analysis runs locally; the server binds to the loopback interface, so it is accessible only from the same computer. No account or hosted backend is required for the browser interface.
 
-```sh
-node scripts/simulation/generate.mjs --out /tmp/chess-simulation --video
-node scripts/simulation/evaluate.mjs --input /tmp/chess-simulation --out /tmp/chess-png-report.json
-node scripts/simulation/evaluate.mjs --input /tmp/chess-simulation --out /tmp/chess-video-report.json --video /tmp/chess-simulation/pixels/sequence.mp4
+1. Load the starting position, enter a complete FEN, or use the piece-and-state editor.
+2. Review the pieces, side to move, castling rights, en passant, and move counters.
+3. Validate and confirm the position, then request analysis.
+4. Editing the position or interrupting analysis clears the previous recommendation.
+
+FEN describes a position and its current state; it cannot establish the full history of a game. Imported positions are validated, not proven historically reachable. Full-game repetition adjudication is not implemented.
+
+## What works—and what is experimental
+
+| Area | Current capability | Limit |
+| --- | --- | --- |
+| Browser study | Board editor, legal moves, promotion, local analysis, image reference, cancellation | Saved-photo recognition requires a separately prepared local evaluator |
+| iPhone Study | Bundled-image recognition, full position review, on-device rules and Stockfish, text advice | Uses synthetic fixtures; not a live camera workflow |
+| iPhone Replay | Bundled games, including special moves, reviewed starting state and tracked progression | Scripted test evidence does not substitute for a human usability study |
+| Screen-board recognition | Corner detection, square reading, move inference and uncertainty checks | Development research on simulated pictures; physical-board accuracy is not established |
+| Additional occupancy tracker and piece guard | Experimental safety modules with dedicated tests | Occupancy tracker is off by default; piece guard is not connected to the app |
+| Glasses and audio | Adapter source and isolated mock experiments | No end-to-end real-glasses or audible-output validation |
+
+The core rule is simple: **a recommendation belongs to one reviewed position**. Uncertain observations, position changes, reset, and interruptions must withdraw it. Late engine replies must not restore withdrawn advice. Recognition produces a proposal for review, not permission to analyze an unconfirmed board.
+
+## Architecture
+
+```text
+Saved board image / manual position
+                |
+        Recognition proposal
+                |
+   Human review + rules validation
+                |
+       Local Stockfish analysis
+                |
+      Position-bound text advice
 ```
 
-Choose a new empty output directory. For an interactive test, start the app, choose a generated PNG, and click **Recognize simulated board**. Review every piece and supply all historical fields in the resulting editor before **Validate setup**, confirmation, analysis and speech. Do not replace the recognized draft with FEN if testing vision. The first generated frame is an explicitly known new-game fixture: White, KQkq, no en passant, halfmove 0, fullmove 1. Other frames have different state.
+| Location | Responsibility |
+| --- | --- |
+| [`src/core/`](src/core/) | Chess rules, engine lifecycle, reviewed sessions and tracking contracts |
+| [`src/server.js`](src/server.js), [`src/app.js`](src/app.js) | Loopback service and browser development interface |
+| [`native/ChessCompanionApp/`](native/ChessCompanionApp/) | SwiftUI Study and Replay app |
+| [`native/ChessCompanionRuntime/`](native/ChessCompanionRuntime/) | Local WebKit bridge to rules and Stockfish |
+| [`scripts/recognition/`](scripts/recognition/) | Python recognition and evaluation experiments |
+| [`scripts/simulation/`](scripts/simulation/) | Synthetic image/video generation and evaluation |
+| [`tests/`](tests/) | Regression, safety, engine and recognition tests |
 
-Both final PNG and decoded-MP4 evaluations passed: 68/68 positive frames exact, all 10 challenge frames blocked guidance, 34/34 required legal-state checkpoints correct. These correlated frames use one known artwork family, not physical or unseen-style accuracy. See `docs/SIMULATION_PLAN.md` for the implemented plan, splits, commands and remaining gates.
+Rules use **chess.js 1.4.0**. Analysis uses **Stockfish.js 19.0.1**, with a single-threaded WebAssembly engine. Dependencies are pinned in [`package-lock.json`](package-lock.json).
 
-## Use
+## Checks
 
-1. Start from the initial position, enter a complete FEN, or choose **Edit pieces & state**. In manual setup, select a piece/eraser and click board squares. Set side to move, castling rights, en passant and move counters, then **Validate setup**.
-2. Choose a local reference image for manual comparison. Optionally **Recognize saved photo** using the existing local Mac evaluator, or import its matching recognition JSON. Recognition sends the image only to the loopback service and returns an untrusted draft. The experimental classifier makes confident errors on real video. Review every piece and explicitly supply turn, castling (including none), en passant and both counters; missing state blocks validation. No photo can establish these historical fields. A model/evaluation setup must already exist; nothing downloads automatically.
-3. Check all pieces and game state, then tick the confirmation box and **Find best move**. Choose 0.5, 1.5 or 3 seconds of search. Evaluation is from the side-to-move perspective. The engine line is a possible continuation, not a commitment or guaranteed result.
-4. After confirmed analysis, **Speak move on this device** uses an installed local English browser voice. Audible delivery and glasses routing have not been tested. Click a piece and legal destination to play a local practice move. Choose promotion type before moving. Every move, FEN edit, manual setup, cancellation or hidden-tab interruption clears guidance and requires renewed confirmation.
+```sh
+# JavaScript regression suite, including real local engine checks
+npm test
 
-FEN cannot establish earlier repetition history or prove that a position was historically reachable. The fifty-move threshold is claimable rather than automatic; the seventy-five-move threshold terminates play unless the position is checkmate. Full-game repetition adjudication is not implemented. Manual setup never silently infers castling or en passant from piece locations. Imported positions are structurally validated, including king safety, material limits and historical-right consistency, but they are not retrograde proofs.
+# JavaScript plus Python recognition suites
+scripts/check-all.sh
+```
 
-## What exists
+The JavaScript suite also runs Python-backed synthetic-image checks, so Node alone is insufficient. It needs Python 3 with NumPy/Pillow and permission to open local loopback listeners. Some tests are opt-in or depend on external fixtures; skipped checks are reported separately.
 
-- Deterministic synthetic PNG/video generator, isolated pixel recognizer, separate truth evaluator, and review-only simulation API/UI.
-- Locked chess.js 1.4.0 and full Stockfish 19.0.1 single-thread NNUE WASM.
-- Legal move, promotion, mate/stalemate and draw-state handling; bounded local engine processes with timeout/cancellation.
-- Responsive board, FEN and piece-placement editor, explicit confirmation, undo/flip, local image reference, stale-result guards.
-- Experimental macOS board-corner calibration CLI with reviewed manual fallback and 64-square mapping.
-- Experimental saved-photo recognition API/UI with unknown-history fields, human review and stale-import guards. It is not trusted automatic recognition.
-- Offline legal observation tracking and a camera/engine/speech coordinator seam, tested with reviewed synthetic-label fixtures and a text sink. Separate native adapter source now exists; it has not received real camera frames. See `docs/OBSERVATIONS.md` and `docs/LIVE_PIPELINE.md`.
-- Bounded offline frame queue with source/frame hashes, freshness deadlines and cancellation. A real saved-photo request stayed review-only; the default one-second deadline cancelled it. Completed diagnostic requests took about 11.4–11.6 seconds, so this model path is not live-ready.
-- Browser local speech control and stale-output cancellation; audible delivery is unverified.
-- Swift synthetic recognizer: the existing 78 PNG frame records / 4,992 square decisions matched the frozen Python recognizer with zero disagreements, including abstentions, on the Mac. This is reused synthetic port conformance, not new accuracy or iPhone performance evidence.
-- Swift capture/review/output contracts with 10 passing Mac mock lifecycle checks and dormant DAT 1.0.1 / native speech adapters. Real DAT capture age is still unknown, so real frames cannot receive engine or speech permits.
-- Source for an iPhone-local WebKit rules/Stockfish backend, using bundled assets. Its native host typechecks, and an authorized Mac WebKit fixture passed local rules, actual Stockfish and cancellation. App integration and phone memory/performance remain unverified.
+The full recognition suite is currently a **maintainer-environment check**, not a clean-clone guarantee. It needs Python 3, NumPy, Pillow, FFmpeg for video checks, and, for some cases, macOS tools or generated evidence outside the repository. Some research paths still refer to the original Mac workspace. Do not interpret missing fixtures or skipped tests as successful validation.
 
-The installed iOS 26.2 SDK and Swift 6.2.4 successfully typechecked and unsigned-linked a minimal DAT 1.0.1 import library. The earlier generic `xcodebuild` destination error did not establish that the compiler SDK was absent. Native vision, capture and runtime sources also passed bounded iOS typechecks; these do not constitute a complete app build, signing, installation or hardware test. See `docs/HARDWARE_COMPATIBILITY.md` and `docs/VERIFICATION.md` for the evidence and limits.
+The [source-check workflow](.github/workflows/checks.yml) runs the main suite on Linux with the pinned dependencies. See [GitHub Actions](https://github.com/alexmunzon/chess-practice/actions) for current run status. It does not run the Mac, Simulator, or phone checks.
 
-A separate **offline synthetic-study iPhone app** now compiles and links as an unsigned private bundle. Its UI requires explicit engine start, pixel recognition, full FEN review, analysis and optional speech. Eight mocked lifecycle checks pass. It was never installed or launched; actual UI/pipeline behavior and audio remain unverified. See `native/ChessCompanionApp/README.md` for assembly commands and the exact scope. Live glasses mode remains unavailable.
+See the dated [verification record](docs/VERIFICATION.md) for results, commands, and evidence limits. The updated November 17 phone build passed **34 of 34 checks** after the runtime safety fix; the combined Mac check passed **12 of 12 suites**. Phone checks used scripted review and bundled synthetic pictures, and do not validate live glasses. Earlier interrupted attempts and test limitations remain in the verification record.
 
-## What does not exist yet
+## Build the iPhone app
 
-Reliable automatic physical-board/piece recognition, an installed and tested iPhone app, live phone/glasses capture, Bluetooth integration and hardware validation. Saved genuine-video diagnostics show 0/5 automatic board detections and 120/236 accepted known piece labels wrong for the whole-photo model; no automatic physical-vision-to-guidance path is enabled. The five frames are one correlated staged video with partial labels, not an accuracy benchmark or continuous-game test. Browser speech and synthetic pipeline tests do not validate glasses audio. Bounded engine analysis is not a promise of perfect chess.
+The native app needs macOS, Xcode, the installed iOS SDK, and the frozen synthetic fixture corpus described in the [native app guide](native/ChessCompanionApp/README.md). Engine assets and generated app bundles stay outside this repository. Use a local build folder outside cloud-synced Documents/Desktop for signing; Finder metadata added by sync can make code signing reject an otherwise valid generated bundle. There is no one-command clean-clone iPhone installation yet.
 
-## Plan and evidence
+After installing the locked Node dependencies, prepare runtime assets in a **new empty directory outside the repository**:
 
-- `HANDOFF.md`: stopping checkpoint, exact results/artifacts, unfinished verification and the next bounded task packet.
-- `docs/WORKFLOW.md`: the existing build/test/independent-review/checkpoint process, with no background controller.
-- `docs/SIMULATION_PLAN.md`: implemented simulation-first milestone and optional later glasses capture of a screen.
-- `docs/PLAN.md`: phased implementation, acceptance gates and dependencies.
-- `docs/REUSE.md`: actual reuse versus patterns and missing hardware code.
-- `docs/VERIFICATION.md`: current permitted test results, environment blockers and separately labeled historical browser checks.
-- `docs/HARDWARE_COMPATIBILITY.md`: official Gen 1 requirements and unresolved camera/audio interaction.
-- `docs/VIDEO_EVALUATION.md`: genuine-video evidence and the next sequential evaluation gate.
-- `docs/PAIRED_EVALUATION.md`: strict same-classifier replay, partial-label denominators, failure analysis and prerequisites for a genuinely new held-out comparison.
-- `docs/PUBLIC_VIDEO_SOURCES.md`: new public source candidates, licenses, failed acquisition attempts and inspection requirements; no new held-out footage has been evaluated.
-- `docs/NUMERICAL_DIAGNOSIS.md`: preserved failed numerical gate, artifact/layout audit, one-versus-three-pass results, restricted-runtime comparison and authorized GPU-visible reproduction.
-- `native/BoardVision/README.md`: calibration commands, public photo source and honest failures.
-- `native/ChessCompanionVision/README.md`: Swift synthetic recognizer, reused-data conformance and package/resource limits.
-- `native/ChessCompanionCapture/README.md`: bounded phone-local contracts, mock checks and unknown DAT capture-age blocker.
-- `native/ChessCompanionRuntime/README.md`: local WebKit engine source, bounded Mac execution evidence and remaining iPhone gates.
-- `evidence/`: test output, dependency audit and screenshots of actual local UI results.
+```sh
+node scripts/build-device-runtime.mjs --out /absolute/path/to/empty-runtime-assets
+```
 
-## Privacy, security and distribution
+Use [`prepare_app.py`](native/ChessCompanionApp/prepare_app.py) with the prepared assets and verified fixture paths to compile a Simulator or device bundle. Its `--help` lists the inputs. Device signing and installation are separate steps documented in the [signing guide](native/ChessCompanionApp/signing/README.md); they require your own configured signing identity. Do not copy another developer's provisioning files.
 
-Loopback-only server, same-origin/Host validation, bounded request bodies, static allowlist and Content Security Policy. No remote analysis, analytics, credentials, camera or microphone access. Advice is for private practice and assistance permitted by those involved.
+The iOS Simulator has a known intermittent engine freeze that is not reproduced by the recorded phone searches. Its cause is unresolved. See [engine behavior and limits](docs/PREWARMED_ENGINE.md).
 
-`package.json` declares GPL-3.0-or-later. Third-party license texts and corresponding upstream sources are recorded in `THIRD_PARTY_NOTICES.md` and `licenses/`. Do not redistribute `node_modules`, the Stockfish binary/WASM or a bundled release until GPL corresponding-source delivery requirements are verified. The local development prototype uses locked npm installation; no public release is part of this milestone.
+## Development and evidence
+
+- [Plan](docs/PLAN.md): current priorities and historical decisions.
+- [Verification](docs/VERIFICATION.md): dated results, evidence types, and open checks.
+- [Synthetic simulation](docs/SIMULATION_PLAN.md): generation, evaluation and dataset limits.
+- [Screen pipeline](docs/SCREEN_PIPELINE.md): recognition policy and failure cases.
+- [Development workflow](docs/WORKFLOW.md): bounded changes, independent review and checkpoints.
+
+Synthetic pictures, Mac execution, Simulator runs, and physical-phone tests are distinct evidence. None establishes physical-board or glasses accuracy. The existing held-out picture sets have already been used; new generalization claims require genuinely unseen data.
+
+## License and distribution
+
+Source is licensed under **GPL-3.0-or-later**; see [LICENSE](LICENSE). Preserve the [third-party notices](THIRD_PARTY_NOTICES.md) and dependency license texts in [`licenses/`](licenses/).
+
+A source repository is not a prepared binary distribution. Before redistributing Stockfish binaries, WebAssembly, `node_modules`, or an app bundling the engine, verify the applicable GPL corresponding-source delivery requirements. Do not commit signing identities, provisioning profiles, credentials, or generated engine assets.

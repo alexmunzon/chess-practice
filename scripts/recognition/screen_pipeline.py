@@ -19,7 +19,7 @@ Truth is used for startFen only.
 CLI: python3 -B scripts/recognition/screen_pipeline.py --scenes ROOT --game ID --out DIR [--classifier v2|v3] [--agree N]
      [--start-fallback v4]   (off by default; see START_FALLBACK_CLASSIFIER)
      [--start-self-check]    (off by default; see START_SELF_CHECK)
-     [--corner-finder original|round2]   (default original; see FINDERS)
+     [--corner-finder original|round2]   (default round2; see FINDERS)
 """
 import argparse
 import hashlib
@@ -43,9 +43,9 @@ BUILD = Path('/Users/alexmunzon/chess-builds/pipeline-2026-11-15/pipeline')
 DEFAULT_DETECTOR = BUILD / 'bin/screen-board-detect'
 # Corner finder by name (same style as the reader choice). 'original' is the frozen finder (sha256 b5774046...);
 # 'round2' is the reviewed round-2 finder (sha256 3292bcae...; strict improvement on ordinary pictures, NOT a guard
-# against lens distortion). The default stays 'original' until the owner reviews the development numbers.
+# against lens distortion). The reviewed round2 finder is now the default; original remains selectable.
 FINDERS = {'original': DEFAULT_DETECTOR, 'round2': BUILD / 'bin/screen-board-detect-round2'}
-DEFAULT_FINDER = 'original'
+DEFAULT_FINDER = 'round2'
 _FINDER = {'name': DEFAULT_FINDER}
 INFER_CLI = ROOT / 'scripts/recognition/occupancy-infer-cli.mjs'
 PANEL = 640
@@ -174,7 +174,7 @@ SHORT = {'empty': '.', 'white': 'w', 'black': 'b', 'unknown': '?'}
 ACCEPTED = ('move', 'unchanged')
 
 
-def policy():
+def policy(binary=None):
     mod = clf()
     doc = {'pipeline': dict(POLICY), 'classifier': mod.policy() if hasattr(mod, 'policy') else {}}
     if _CLASSIFIER['name'] != 'v2':  # v2 keeps the round-1 hash layout
@@ -191,8 +191,12 @@ def policy():
         doc['startSelfCheck'] = {'rule': 'a start the default reader calibrates in exactly 1 orientation is accepted '
                                          'only if that reader then reads the start picture back as the stated start '
                                          'on all 64 squares; a refused start is not handed to the fallback'}
-    if _FINDER['name'] != DEFAULT_FINDER:  # only when not the original, so the default policy hash is unchanged
-        doc['cornerFinder'] = {'name': _FINDER['name'], 'binarySha256': _file_sha256(finder_path())}
+    detector = Path(binary) if binary is not None else Path(finder_path())
+    name = next((name for name, path in FINDERS.items() if Path(path) == detector), 'custom')
+    if name != 'original':  # preserve original-era hashes; identify the actual binary for other runs
+        doc['cornerFinder'] = {'name': name, 'binarySha256': _file_sha256(detector)}
+        if name == 'custom':
+            doc['cornerFinder']['binaryPath'] = str(detector)
     doc['sha256'] = hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()
     return doc
 
@@ -316,7 +320,7 @@ def order_like_detector(corners):
 # ------------------------------------------------------------------ detector ----
 def run_detector(paths, binary=None, chunk=40):
     """Run the corner binary on image paths (stateless per image; batched to save process starts).
-    binary=None = the selected corner finder (set_finder; default 'original' = DEFAULT_DETECTOR).
+    binary=None = the selected corner finder (set_finder; default 'round2').
     A crash, a non-zero exit, malformed JSON or a missing answer is recorded as a DETECTOR ERROR
     (`error: true`, reason detector-error:...), never as "board not found"; a warning is printed."""
     if binary is None:
@@ -715,7 +719,7 @@ def run_game(scenes, game, out=None, binary=None, start_pictures=1):
             rec['file'] = f['file']
             trace.append(rec)
         tracker.finish()
-    doc = {'schema': 'screen-pipeline-trace-v1', 'game': game['id'], 'policy': policy(),
+    doc = {'schema': 'screen-pipeline-trace-v1', 'game': game['id'], 'policy': policy(binary),
            'note': 'simulated images only; start frame = simulated review of startFen', 'frames': trace}
     if out:
         out = Path(out); out.mkdir(parents=True, exist_ok=True)
@@ -728,8 +732,9 @@ def main():
     ap.add_argument('--scenes', required=True, type=Path)
     ap.add_argument('--game', required=True)
     ap.add_argument('--out', required=True, type=Path)
-    ap.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides --corner-finder)')
-    ap.add_argument('--corner-finder', default=DEFAULT_FINDER, choices=sorted(FINDERS),
+    finder_args = ap.add_mutually_exclusive_group()
+    finder_args.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides default finder)')
+    finder_args.add_argument('--corner-finder', default=None, choices=sorted(FINDERS),
                     help=f'corner finder by name (default {DEFAULT_FINDER})')
     ap.add_argument('--classifier', default=DEFAULT_CLASSIFIER, choices=sorted(CLASSIFIERS))
     ap.add_argument('--start-pictures', type=int, default=1,
@@ -741,9 +746,8 @@ def main():
     ap.add_argument('--start-self-check', action='store_true',
                     help='the default reader must read its start picture back as the stated start (off by default)')
     a = ap.parse_args()
-    if a.detector is not None and a.corner_finder != DEFAULT_FINDER:
-        ap.error('give --detector or --corner-finder, not both')
-    set_finder(a.corner_finder)
+    if a.detector is None:
+        set_finder(a.corner_finder or DEFAULT_FINDER)
     set_classifier(a.classifier)
     set_start_fallback(a.start_fallback)
     set_start_self_check(a.start_self_check)

@@ -2,12 +2,168 @@
 
 Written November 16, 2026, about 05:45 Madrid; last updated November 17, 2026, about 08:20, after an
 overnight session (see "Session 2026-11-17" below). UPDATE 2026-11-17 about 11:40: Alex said "Yes, commit";
-everything up to here is committed as the 2026-11-17 checkpoint (`git log -1`), NOT pushed. Where sections
-below say "uncommitted", read "committed 2026-11-17, not pushed". Last commit `e482729` on `main`, pushed to the PRIVATE GitHub repo
+everything up to here is committed as `53a8bfa` and, on his words "Yes, push main", pushed to the private
+GitHub repo about 11:50. Where sections below say "uncommitted", read "committed and pushed in `53a8bfa`".
+Only this note and the matching lines in `CLAUDE.md` and `orchestrator-state.json` are newer than that commit. Last commit `e482729` on `main`, pushed to the PRIVATE GitHub repo
 `alexmunzon/chess-practice` (remote `origin`, created 2026-11-16 on Alex's words; every further push
 needs his words again). Everything in the "Afternoon session" section below is uncommitted. You are a Fable session that plans, assigns, integrates and reviews; Opus
 workers do the focused build work. Read this file first, then `CLAUDE.md` and `AGENTS.md` (binding
 rules). The paste-in prompt for a new session is `NEXT-SESSION-PROMPT.md`.
+
+## Start here — verified ChatGPT checkpoint, 2026-11-17
+
+Read SESSION-HANDOFF-2026-11-17.md for the completed checkpoint and exact evidence. Final combined checks 12/12, native gates 26/26, real-phone self-test 34/34 with normal build restored. All workers stopped. Guard and runtime fixes independently reviewed; corner default plus custom override verified over all four development splits (376/376 matching result files). Repository is PUBLIC. User authorized committing/pushing all progress after tests; actual publication is recorded in Git history. No new held-out data used. King/queen experimental study remains incomplete; keep that reader disabled and guard disconnected.
+
+## Historical afternoon handoff (written 2026-11-17 about 15:10, end of the afternoon session; this section is current)
+
+Alex said "stop all work now" at about 14:55. Three workers were stopped mid-task, so, unlike the note
+below, THERE IS HALF-DONE WORK. Nothing from this session is committed. `main` is still `53a8bfa`.
+
+Uncommitted files and their state:
+
+| File | State |
+| --- | --- |
+| `CLAUDE.md`, `FABLE-HANDOFF.md`, `NEXT-SESSION-PROMPT.md`, `orchestrator-state.json` | notes |
+| `native/MockGlassesProbe/analyze_frame_age.py`, `frame_age_mac_sim.py`, `tests/mock_glasses_frame_age.py`, `docs/MOCK_GLASSES_FRAME_AGE.md` | freshness code rounds 1 and 2: DONE, reviewed once, fix round checked by the orchestrator (tests 16 of 16; mock video 21 of 21). Simulation only |
+| `native/ChessCompanionApp/TrackerGateChecks.swift`, `scripts/check-native.sh` (new) | Swift gate check, 26 checks, 26 of 26 (orchestrator, 2 runs). Two reviews, both "accept with conditions"; the second review's four conditions are OPEN. Not called from `check-all.sh` |
+| `scripts/recognition/piece_guard.py`, `tests/piece_guard.py`, `docs/PIECE_CLASSIFIER.md` | HALF DONE AND UNVERIFIED: round 8 was stopped at its step 2 of 6 (sha now `0cef7ffcc90b…`). The round 7 version (`17cf71610139…`) is saved as `chess-builds/piece-guard-2026-11-17/round8/piece_guard.round7.py`. Either finish round 8 or restore round 7 before trusting anything; see the final check result in `orchestrator-state.json` |
+
+What this session established (evidence type in each line):
+
+1. Phone self-test of `53a8bfa`, real iPhone: 34 of 34 checks in 2 of 2 complete runs (a first attempt was
+   interrupted at launch, app inactive for 2 s, and is not a result). 25 analyses per run, median search
+   0.16-0.17 s, slowest 0.20 s. Normal build restored (unsigned sha `97546557…`, built from `53a8bfa`).
+   Evidence `chess-builds/phone-selftest-2026-11-17/`.
+2. Slow engine search: PARKED by Alex ("Park it") after three rounds. It is a Simulator-only engine FREEZE,
+   not a slow search and not load: in 18 of 21 misses the engine searched at normal speed, then went silent
+   mid-search (still silent at 20 s in 9 of 9); 3 of 21 never answered the first command. Phone: 0 misses in
+   470 searches. A separate diagnostic (six set-ups, start position) froze 0 of 360 times in the Simulator
+   while the ordinary self-test at the same load missed 9 searches in each of 2 runs. Cause NOT established
+   (inferred: a worker timer inside `stockfish-19-single.js` that fires late or never). Read
+   `chess-builds/slow-search-experiment-2026-11-17/FINDINGS.md` and
+   `chess-builds/slow-search-study-2026-11-17/REPORT.md`. Docs still say "35x slower" and blame load: both
+   wrong, correct them in the docs refresh. Simulator self-test runs will keep showing misses that are not
+   app faults; the phone self-test is the one that counts.
+3. Piece guard, seventh review (round 7, accept with conditions; `chess-builds/review-piece-guard-round7-2026-11-17/`,
+   reviewer-measured, orchestrator read the logs): sixth review's attacks 0 of 93; BUT a re-baseline claiming
+   the old position after a nameable piece moved was accepted 3 of 350 (only under 2-5 px corner jitter; the
+   real square read "thin-runner-up"); a king or queen capture hidden in the claim was accepted 48 of 56 and
+   leaves the captured piece as a phantom in the baseline; mutant "knight may move diagonally" survives (10 of
+   2,016). Legal-play cost unchanged, 50 of 320. Conditions: refuse a re-baseline when a square the claim
+   calls empty does not read "no-piece-seen"; a knight-diagonal test; correct docstrings and document the
+   capture limit. Round 8 was working on these plus a mirror rule (a claimed-occupied square that reads
+   "no-piece-seen" refuses) when stopped; its partial logs are in `piece-guard-2026-11-17/round8/`.
+4. Freshness code (frame-age method 1), Mac simulation only: code = 4-symbol session value + 2-symbol counter
+   + 2 check digits, alphabet 31. Previous-session replay 2,033 -> 0 of 8,712; counter +1 misread 325 of 1,850
+   -> 0 of 916; a complete valid next code still 152 of 922 (no check can see it). Review
+   (`review-frame-age-method1-2026-11-17/`): supported with caveats, all then written into the doc: the reader
+   must never "keep the last good value" (830 against 152 of 70,157 old accepted); the session value must be
+   redrawn at every restart (reused: 1,536 of 7,261; redrawn: 0); the counter runs out after about 32
+   minutes; code band and board from different exposures accepts 20,000 of 20,000. Evidence
+   `frame-age-method1-2026-11-17/` (round2/ holds about 430 MB of record files that can go).
+5. Swift gate check (backlog 5 leftover): see the table above. First review: 11 of 19 weakenings caught;
+   after the fix round 19 of 19 (builder-reported). Second review
+   (`review-swift-gate-checks-round2-2026-11-17/`): 8 of 8 stable, 6 of 11 new weakenings caught, and ONE REAL
+   GAP IN APP CODE, proved by running it: a command with two `kind` keys (`{"kind":"analyze",…,"kind":"trackerIngest"}`)
+   with the tracker setting on is read as an engine request by Swift and run as a tracker reading by the
+   page; if that request then times out or is superseded nothing revokes and the next snapshot is
+   `ready=1`. Not reachable from today's app (the app serialises its JSON; tracker off by default). NOT
+   FIXED: the fix builder was stopped before changing anything. Check 21 currently pins the old behaviour.
+   Also open: bound the wait in check 25, extend check 21 to every engine kind, the app-pin check (24) is
+   source text only. The handoff's old "16 assets label" item is already fixed in the repo.
+6. King-and-queen naming study: STOPPED UNFINISHED. `chess-builds/king-queen-design-2026-11-17/DESIGN.md` is
+   marked "DRAFT - numbers pending"; checklist items 3-7 open; the orchestrator has not read past its first
+   page. Do not quote it.
+7. `scripts/check-all.sh` at session start: 11 of 11 suites (npm 397 tests, 389 pass, 0 fail, 8 skipped).
+   The end-of-session run on the files as left (14:57-15:15): 10 of 11 suites. The one failure is npm test
+   (397 tests, 388 pass, 1 fail, 8 skipped): a real-engine timing test in `tests/prewarm-wiring.test.js`
+   timed out at load about 41 from other programs on the Mac; re-run alone at load 6.6 it passed 10 of 10.
+   The piece guard suite ran 35 of 35 on the half-done round 8 file, which is not a reviewed state.
+
+Decisions and words from Alex this session:
+- "For the weekly usage stopping at 80, just drop that guardrail": the weekly 70% and 80% stop lines are
+  dropped. The stop on any rise in paid extra-usage spend above $49.20 stays. The orchestrator's own line
+  (its choice, not Alex's words): launch nothing new at 95% weekly, because paid spend begins at 100%.
+  Weekly usage was 87% at 14:50 (resets 2026-11-19 07:00 Madrid); five workers cost about 1 point per 5-8
+  minutes.
+- "Run the experiment" then "Park it" for the slow search (item 2).
+- Still unanswered: corner finder round 2 as the default (orchestrator: yes); piece guard cost (orchestrator:
+  wait for a finished king-and-queen study; and the guard is not ready to connect anyway, item 3).
+
+Work in this order next time:
+1. Piece guard: restore round 7 or finish round 8 with a fresh builder (brief and findings as in item 3),
+   then an eighth independent review. Until then `tests/piece_guard.py` may not reflect a reviewed guard.
+2. Close the two-`kind` gap in `NativeEngineRuntime.swift` `submit` (refuse and revoke a command whose top
+   level names `kind` more than once), turn check 21 into a refusal check, close the other three conditions,
+   then a third review. This is a change to app code: its own reviewer before commit, and a phone self-test
+   after.
+3. Only after 2: call `scripts/check-native.sh` from `scripts/check-all.sh` (25-55 s per run) and record it
+   in `CLAUDE.md`.
+4. King-and-queen study: restart with a fresh builder using the draft and its `proto/`, `dumps/`, `logs/`.
+5. If Alex says yes: corner finder round 2 as the default, re-run the development splits, review.
+6. Docs refresh last: `docs/PLAN.md`, `docs/VERIFICATION.md`, the engine docs (item 2 corrections), the
+   status page. None was touched this session.
+7. Dates: the free signing profile expires 2026-11-22 15:22 Madrid.
+
+Lessons from this session:
+- Instrument the real path first. Two rounds of a clean, separate diagnostic (360 searches) found nothing;
+  one round of logging inside the real self-test showed the misses were freezes.
+- Check a log-pattern hypothesis against the code before telling Alex: "abandoned warm-ups pile up" was
+  contradicted by the code (one spare at most) and had to be corrected.
+- Five workers with builds pushed the Mac's load to about 110 and stretched `check-all.sh` from a few
+  minutes to 18. Run the orchestrator's own full check before launching, not beside the workers.
+- Reviewers kept paying: the Swift gate check's second review found a real gap in app code that the check
+  had pinned as acceptable behaviour.
+- A worker's background run can still be going when the worker is stopped; after a stop, look for stray
+  processes and for half-edited files, and say which files are untrusted.
+
+## Earlier start note (2026-11-17 about 12:00; SUPERSEDED by the section above, kept for its lessons)
+
+State: `main` is at `53a8bfa`, pushed to the private GitHub repo. Only note edits made after that commit
+are uncommitted (`CLAUDE.md`, `FABLE-HANDOFF.md`, `orchestrator-state.json`, `NEXT-SESSION-PROMPT.md`).
+`scripts/check-all.sh`: 11 of 11 suites on 2026-11-17 about 11:20 (orchestrator-run). No worker is running
+and nothing is half done; there are no CHECKPOINT.md files to pick up.
+
+Ask Alex at the start (one numbered message), then work the list below without waiting on answers that do
+not block an item:
+1. Corner finder round 2 as the default? (orchestrator: yes)
+2. Piece guard cost: a human re-check after every king move, queen move and castling (50 of 320 moves in 8
+   legal games), or first design a reader that names kings and queens?
+3. Phone unlocked, screen on, Auto-Lock Never, for a self-test of the `53a8bfa` build?
+4. Do the 70% and 80% usage stop lines apply today? (On 2026-11-17 he said "keep running ignore usage"; the
+   stop on any rise in paid extra-usage spend above $49.20 stayed in force.)
+
+Work in this order (each item names its backlog entry below):
+1. Fresh independent review of `piece_guard.py` round 7 (`17cf71610139…`); it closes the sixth review's one
+   condition and has had no review of its own. Backlog 10.
+2. Phone self-test of the current build once Alex has unlocked the phone (orchestrator only, with
+   `native/ChessCompanionApp/signing/phone_selftest.sh`). The last phone run, 33 of 33, was on 2026-11-16 and
+   predates the promotion wiring and the new guard checks.
+3. If Alex accepts the guard's cost: design, then build, the guard beside the tracker as its own reviewed
+   step (it may only revoke; a re-baseline only after a person's review). If he does not: a design study for
+   naming kings and queens (the piece reader learns from the start picture, where each side has one of each).
+4. If Alex says yes to the corner finder: make round 2 the default, re-run the development splits, review.
+5. Frame-age method 1: add a per-session value and an error-detecting code, then re-run the Mac harness
+   (round 3 found a previous-session replay accepted 2,033 of 8,712 and a misread 325 of 1,850). Backlog 7.
+6. Slow engine search: it appeared at lower load and not at higher load on 2026-11-17, so load alone does not
+   explain it. Collect Simulator and phone runs and find the cause before proposing a warm-up. Backlog 6.
+7. Older items needing new inputs: lens undistortion (backlog 3), motion blur (backlog 4), and new unseen
+   pictures before any further accuracy claim (no held-out set is left).
+8. Dates: the free signing profile expires 2026-11-22 15:22 Madrid; re-sign and reinstall after that.
+
+Lessons from 2026-11-17 to keep (the paste-in prompt carries them too):
+- Every fix round on a safety module got a fresh reviewer, and reviews 3 and 6 of the piece guard still found
+  real holes in code written after the previous review. Review the fix, not only the first build.
+- A check that cannot fail proves nothing. Ask each reviewer "can this test or harness fail?" and have it
+  inject faults (the frame-age "0 misses" held by construction; the old guard check passed with the guard
+  deleted).
+- Cost numbers must come from legal play. The first piece-guard cost figures came from random non-moves and
+  had to be corrected.
+- When a worker's own context grows very large, start a fresh builder with a tight brief instead of
+  continuing it.
+- Reviewers sometimes cannot write outside the scratchpad; copy their scripts and logs into `chess-builds`
+  yourself as soon as they report.
+- Simulator timing runs need a quiet Mac: no other worker running, `uptime` recorded before and after.
 
 ## The product in three sentences
 

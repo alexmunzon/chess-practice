@@ -1,10 +1,39 @@
-# Current state (2026-11-16)
+# Verification
+
+## Verified checkpoint — 17 November 2026
+
+Parent final combined check: **12/12 suites**, including native **26/26**; npm **389 pass, 0 fail, 8 skip** out of 397. Guard **36/36**, pipeline **51/51**, freshness **16/16**. Updated real-phone self-test **34/34** with zero speech requests; normal build restored. Earlier interrupted phone attempt and signing-folder failure are retained in the session record.
+
+Guard, runtime, freshness and corner selection changes received fresh independent review. Four development splits match the prior reviewed detector results: **376/376 JSON files**, excluding timing/debug paths; this is equivalence, not new accuracy. All held-out sets remain spent; no new held-out evaluation. King/queen experimental work remains incomplete, tracking stays off and the piece guard stays disconnected. Source CI has pinned dependencies and least-privilege settings; actual Linux runs are recorded in [GitHub Actions](https://github.com/alexmunzon/chess-practice/actions).
+
+Exact commands, all run outcomes, component-versus-app evidence limits, failures and local evidence paths are in [the completed session record](../SESSION-HANDOFF-2026-11-17.md). This checkpoint supersedes the earlier summaries below.
+
+
+## Current checkpoint — November 17, 2026
+
+This section supersedes older status summaries below. Historical logs and their original evidence paths are retained; most build artifacts live outside the public repository and are not reproducible merely by following those paths on another computer.
+
+| Check | Recorded result | Scope and limit |
+| --- | --- | --- |
+| Full check before the current fix work | 11 of 11 suites passed; Node 397 tests, 389 passed, 8 skipped, 0 failed | Orchestrator-run on the Mac; log directory `$TMPDIR/chess-check-1575`. This predates subsequent edits, so it is not a pass for the final working tree. |
+| Native tracker gate check before the runtime fix | 26 of 26 passed | Orchestrator-run on Mac WebKit; one check accepted the old duplicate-`kind` behavior. The known gap still needed a fix and independent review despite a green run. |
+| Latest committed phone build (`53a8bfa`) | 34 of 34 checks in two complete runs | Real iPhone, scripted review, synthetic pictures; `CB/phone-selftest-2026-11-17/phone-run2/` and `phone-run3/`. An earlier interrupted attempt is not a complete run. |
+| Frame freshness tests before current fixes | 16 of 16 passed | Mac simulation only; does not establish freshness of real glasses pictures. |
+| Piece guard at current work start | Restored round-seven guard: 32 of 32 passed | Orchestrator-run; known review findings remain. Later round-eight work requires fresh checks and review. |
+
+`CB` means the maintainer's external `chess-builds` evidence directory. The full-suite logs were read during this documentation refresh; the other rows preserve the orchestrator's recorded evidence and are not new runs by the documentation worker. Final fix-round and integration results must be recorded separately when they finish.
+
+**Engine correction:** the November 17 in-flow measurements show a Simulator-only freeze, not “35x slower” search. In 18 of 21 misses the engine searched normally, then went silent; in three it did not answer the first command. The cause is not established and load alone does not explain it. The recorded phone sample had zero misses in 470 searches. This does not prove that a phone can never fail. The investigation is parked; see `CB/slow-search-experiment-2026-11-17/FINDINGS.md`.
+
+**Evidence limits:** synthetic accuracy is not physical-board accuracy; scripted review is not human usability validation; a Mac check is not a phone test. The existing held-out image sets have already been scored and cannot support a fresh unseen-data claim. Live camera, real glasses and audible output remain unverified. Current source changes have not inherited the phone validation of `53a8bfa`.
+
+## Historical checkpoint — November 16, 2026
 
 Refreshed November 16, 2026, at the handoff (about 05:45 Madrid; reader v4.1 notes from 06:40). The
 last commit is still checkpoint `46ce560` on `main` (6 commits, no remote); everything since is
 uncommitted. It updates and supersedes the version written at 01:30 on November 16 and the
 "Current state (2026-11-15)" version before it (rows dated 2026-11-15 below are from that version and
-still hold unless a newer row replaces them or says "superseded"). **This section supersedes every older section below.** Those older sections are history: they stay exactly as written,
+still hold unless a newer row replaces them or says "superseded"). **At the time, this section superseded the older sections below; the November 17 checkpoint above is now newer.** Those older sections are history: they stay exactly as written,
 including their Codex evidence paths, and where they say something is "pending", "untested" or
 give an older test count, this section is the current answer.
 
@@ -61,7 +90,7 @@ person. The in-flight switch is event ordering inside the self-test, not finger-
 | Mock safety suites | Study 28/28, Replay 21/21, Integration 18/18, ReplayTracker 94/94 | Mock | `CB/perf-integration-2026-11-15/mocks/study-run.txt`, `replay-run.txt`, `integration-run.txt`, `tracker-run.txt` | 2026-11-15 |
 | Special-move Replay in the Simulator | Run 1: 25/25; run 2: 24/25 (an engine-deadline miss under load); special checks 7/7 in both. A third run under load: 21/25, special 6/7 | Simulator, scripted review | `CB/special-replay-2026-11-15/sim-run1..3-report.json`, `uptime-run*.txt` | 2026-11-15 |
 | Mock suites after special-move Replay | Study 28/28, Replay 26/26, Tracker 94/94, Integration 18/18 | Mock | `CB/special-replay-2026-11-15/mocks/*-run.txt` | 2026-11-15 |
-| Same build as the 30/30 phone runs, in the Simulator | **0 of 5 full passes** (27, 25, 27, 28, 28 of 30). About 1 search in 5 runs about 35x slower there and misses the 4.5 s deadline; every miss failed safe (no advice). Not seen on the phone. Open: accept an occasional "no recommendation" or add a warm-up for every engine start | Simulator, scripted review, agent-reported | `CB/prewarm-wiring-2026-11-16/` (sim runs); `orchestrator-state.json` | 2026-11-16 |
+| Same build as the 30/30 phone runs, in the Simulator | **0 of 5 full passes** (27, 25, 27, 28, 28 of 30). Interpretation superseded November 17: intermittent engine freezes caused deadline misses; cause unresolved. Every recorded miss failed safe (no advice). Not seen in the recorded phone sample; a per-start warm-up is not an established fix | Simulator, scripted review, agent-reported | `CB/prewarm-wiring-2026-11-16/` (sim runs); `orchestrator-state.json` | 2026-11-16 |
 | Mock safety suites, latest | Study 33/33, Replay 31/31, Integration 23/23, ReplayTracker 94/94 (orchestrator-run 02:47; agent-reported unchanged after the follow-up); 37 mutations all caught. Supersedes the 28/28, 26/26, 94/94, 18/18 row above | Mock | `orchestrator-state.json` (`mockSuites`) | 2026-11-16 |
 | Swift tracker vs JavaScript tracker | 28/28 replies deep-equal to the golden transcript | Mac | `CB/replay-tracker-swift-2026-11-15/cross-language.stdout.txt` | 2026-11-15 |
 

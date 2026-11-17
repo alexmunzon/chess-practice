@@ -49,6 +49,70 @@ def nonce_evaluate(first_display, code, frame_epoch, gate_epoch, now, max_age, m
     return (True, "ok", bound) if bound <= max_age else (False, "too-old", bound)
 
 
+# On-screen code for method 1 (2026-11-17, docs/MOCK_GLASSES_FRAME_AGE.md): 8 symbols of a 31-symbol alphabet,
+# session value (4) + counter (2) + check digits (2). The check digits make every 1- or 2-symbol change detectable
+# (minimum distance 3), so a single misread symbol or a counter misread to n+1 / n-1 never passes. The session value
+# is drawn per display session, so a valid code from another session is refused. Only the Mac harness uses this; the
+# Simulator harness and FrameAgeRules.swift still use the bare code index.
+CODE_BASE, SESSION_SYMBOLS, COUNTER_SYMBOLS, CHECK_SYMBOLS = 31, 4, 2, 2
+CODE_LENGTH = SESSION_SYMBOLS + COUNTER_SYMBOLS + CHECK_SYMBOLS
+# The counter has 31^2 = 961 values (0..960). At one code every 2 s it runs out after 1922 s (about 32 minutes).
+# It never wraps: counter 961 is refused, and the display must then end the session and start a new one with a newly
+# drawn session value, a counter back at 0 and an empty display log (a wrapped counter would repeat codes the log has
+# already seen, so every fresh picture would be refused, and a reused session value would let old pictures in).
+COUNTER_VALUES = CODE_BASE ** COUNTER_SYMBOLS
+
+
+def check_digits(message):
+    """c1 = -sum(m_i), c2 = -sum(i * m_i), i = 1..len, modulo 31. With c1, c2 appended, any two columns of the
+    check matrix [[1 .. 1, 1, 0], [1 .. k, 0, 1]] are independent (k <= 30), so 1- and 2-symbol errors are detected."""
+    s1 = sum(message) % CODE_BASE
+    s2 = sum((i + 1) * m for i, m in enumerate(message)) % CODE_BASE
+    return ((-s1) % CODE_BASE, (-s2) % CODE_BASE)
+
+
+def encode_code(session, counter):
+    """Symbols the display shows for `counter` in session `session` (SESSION_SYMBOLS symbols, each 0..30).
+    Refuses (ValueError) a session value of the wrong length or range and a counter outside 0..960; nothing wraps."""
+    session = tuple(session)
+    if len(session) != SESSION_SYMBOLS or not all(isinstance(x, int) and 0 <= x < CODE_BASE for x in session):
+        raise ValueError(f"session value must be {SESSION_SYMBOLS} symbols in 0..{CODE_BASE - 1}")
+    if not isinstance(counter, int) or not 0 <= counter < COUNTER_VALUES:
+        raise ValueError(f"counter {counter} outside 0..{COUNTER_VALUES - 1}: end the session and draw a new session value")
+    digits = tuple((counter // CODE_BASE ** p) % CODE_BASE for p in reversed(range(COUNTER_SYMBOLS)))
+    message = tuple(session) + digits
+    return message + check_digits(message)
+
+
+def read_code(symbols, session, verify_check=True, verify_session=True):
+    """What the app can decide from a read code with only its own session value. Returns (counter, reason);
+    counter is None when the picture must be refused. The two switches exist only to show the harness can fail."""
+    if symbols is None:
+        return None, "unreadable-code"
+    symbols = tuple(symbols)
+    if len(symbols) != CODE_LENGTH or not all(0 <= x < CODE_BASE for x in symbols):
+        return None, "malformed-code"
+    message = symbols[:SESSION_SYMBOLS + COUNTER_SYMBOLS]
+    if verify_check and check_digits(message) != symbols[SESSION_SYMBOLS + COUNTER_SYMBOLS:]:
+        return None, "check-digits-failed"
+    if verify_session and message[:SESSION_SYMBOLS] != tuple(session):
+        return None, "other-session"
+    counter = 0
+    for x in message[SESSION_SYMBOLS:]:
+        counter = counter * CODE_BASE + x
+    return counter, "ok"
+
+
+def coded_evaluate(first_display, symbols, session, frame_epoch, gate_epoch, now, max_age, margin,
+                   verify_check=True, verify_session=True):
+    """Method 1 with the full code: decode with the app's own session value, then the unchanged NonceAgeGate rule."""
+    counter, why = read_code(symbols, session, verify_check, verify_session)
+    ok, reason, bound = nonce_evaluate(first_display, counter, frame_epoch, gate_epoch, now, max_age, margin)
+    if counter is None and reason == "unreadable-code":
+        reason = why
+    return ok, reason, bound
+
+
 def display_logs(frames, cfg):
     """Two display logs per stream (epoch), each a function (epoch) -> (code, now) -> earliest display <= now.
     modelled: what the harness logged, "code N shown at anchor + slotSeconds * N" (anchor = first callback - PTS).

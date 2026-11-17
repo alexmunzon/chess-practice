@@ -56,10 +56,11 @@ Ways to call it:
      baseline where it was: the same move can be checked again on the
      next picture (the first picture after a move cannot confirm the arrival square), but a later move withholds
      until the caller calls rebaseline_after_human_review(...), which sets the baseline to the reviewed position
-     only when a full check of it answers no objection and the reader names enough of its pieces (a picture that
-     shows nothing is refused). Call it ONLY after a person has reviewed the full position:
-     calling it automatically after a withhold defeats the guard, because the guard cannot see wrong kings or
-     queens or pieces invented on empty squares.
+     only when a full check of it answers no objection, the reader names enough of its pieces (a picture that
+     shows nothing is refused), no square reads 'unconfirmed', every square the position calls empty reads
+     'no-piece-seen' and no square it calls occupied reads 'no-piece-seen' (see its docstring). Call it ONLY after
+     a person has reviewed the full position: calling it automatically after a withhold defeats the guard, because
+     the guard cannot tell kings and queens from other pieces, nor every square it is unsure about from a piece.
      The first picture after a move always withholds: the reader names a piece only when the previous picture's
      best match on that square was the same kind (its mid-move rule), so the arrival square is 'cannot tell' until
      a second picture of the new position confirms it.
@@ -83,6 +84,7 @@ WITHHOLD = 'withhold'
 # consistently (chosen from the honest re-baselines of the legal-play run; see docs/PIECE_CLASSIFIER.md)
 REBASELINE_NAMED_SHARE = 0.75
 _UNCONFIRMED = 'unconfirmed'       # piece_classifier_v2.read_tiles: previous picture's best match here was another kind
+_NO_PIECE = 'no-piece-seen'        # piece_classifier_v2.read_tiles: the best match is an empty square, by a clear margin
 _REENTRANT = 're-entrant-call: a call on this guard was made from inside another call on it'
 NO_OBJECTION = 'no objection'
 OUTCOMES = (WITHHOLD, NO_OBJECTION)
@@ -364,14 +366,19 @@ class PieceGuard:
         check_after_move to reviewed_position when a full check of it on this picture answers no objection AND the
         picture gives real evidence for it: the reader must name, consistently with reviewed_position, at least
         REBASELINE_NAMED_SHARE of the pieces it is able to name (pawns, knights, bishops and rooks of the kinds it
-        learned well enough at the start), and at least one, and no square may be 'unconfirmed' by the reader (its
-        previous picture showed another kind there: the picture changed, so a changed square could hide a piece the
-        reviewed position lacks; call it on a picture the guard has just seen). On any objection, refused reading,
-        invalid position, too little evidence (for example degenerate corners, or the first picture of a new guard,
-        which the reader never confirms) or an unconfirmed square it withholds and leaves the baseline unchanged.
-        Calling it automatically after a withhold defeats the guard: the guard cannot see wrong kings or queens, or
-        pieces invented on empty squares (the reader never names kings or queens and never says "empty"), so an
-        unreviewed position with such errors is accepted and becomes the base for every later move."""
+        learned well enough at the start), and at least one; no square may be 'unconfirmed' by the reader (the
+        previous picture's best match there was another kind; call it on a picture the guard has just seen); every
+        square reviewed_position calls empty must read 'no-piece-seen' (the reader's best match there is an empty
+        square by a clear margin); and no square it calls occupied, kings' and queens' squares included, may read
+        'no-piece-seen'. On any objection, refused reading, invalid position, too little evidence (for example
+        degenerate corners, or the first picture of a new guard, which the reader never confirms) or a square that
+        breaks one of these three rules it withholds and leaves the baseline unchanged.
+        What it cannot see: which piece stands on a square the reader does not name. The reader never names kings or
+        queens, so wrong kings or queens on occupied squares (a king and a queen of one colour swapped, or a king or
+        queen claimed where another piece the reader is unsure of stands) are accepted; so are a wrong kind on an
+        occupied square the reader is unsure about when the 0.75 share is still met, and pieces invented on empty
+        squares the reader is unsure about (not 'no-piece-seen'). Calling it automatically after a withhold defeats
+        the guard: an unreviewed position with such errors is accepted and becomes the base for every later move."""
         seq = self._enter()
         if self._reentrant():
             return self._withhold(_REENTRANT)
@@ -484,4 +491,15 @@ class PieceGuard:
             if changed:
                 return self._withhold(*('unconfirmed square (picture changed since the previous one): ' + s
                                         for s in changed))
+            # every square the reviewed position calls empty must read 'no-piece-seen': a square that shows a
+            # piece the reader is unsure about (for example 'thin-runner-up' under corner jitter) could hide a piece
+            # the reviewed position lacks
+            unclear = [s for s in reader.SQUARES if s not in bel and result[s].get('reason') != _NO_PIECE]
+            if unclear:
+                return self._withhold(*('square called empty not seen empty: ' + s for s in unclear))
+            # no square the reviewed position calls occupied may read 'no-piece-seen' (kings and queens included):
+            # the piece the review puts there is not in the picture
+            vacant = [s for s in reader.SQUARES if s in bel and result[s].get('reason') == _NO_PIECE]
+            if vacant:
+                return self._withhold(*('square called occupied seen without a piece: ' + s for s in vacant))
         return GuardOutcome(NO_OBJECTION, _genuine=_GENUINE, _issuer=self, _seq=seq)

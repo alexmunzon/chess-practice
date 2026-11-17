@@ -173,8 +173,42 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
             }
         } onCancel: { Task { @MainActor [weak self] in self?.failRuntime(NativeEngineRuntimeError.cancelled) } }
     }
+    /// Called only after Foundation has validated a top-level JSON object. Scan its string tokens at depth one,
+    /// decoding keys with the same JSON string rules (including Unicode escapes). Nested keys and quoted text do
+    /// not count. Reject every repeated top-level key: requestId and mode must agree across parsers too.
+    private static func hasDuplicateTopLevelKeys(_ text: String) -> Bool {
+        let bytes = Array(text.utf8)
+        var depth = 0, i = 0
+        var keys = Set<String>()
+        while i < bytes.count {
+            switch bytes[i] {
+            case 123, 91: depth += 1; i += 1
+            case 125, 93: depth -= 1; i += 1
+            case 34:
+                let start = i
+                i += 1
+                while i < bytes.count {
+                    if bytes[i] == 92 { i += 2 }
+                    else if bytes[i] == 34 { i += 1; break }
+                    else { i += 1 }
+                }
+                let end = i
+                while i < bytes.count && [9, 10, 13, 32].contains(bytes[i]) { i += 1 }
+                if depth == 1, i < bytes.count, bytes[i] == 58 {
+                    guard let key = try? JSONSerialization.jsonObject(with: Data(bytes[start..<end]), options: [.fragmentsAllowed]) as? String else { return true }
+                    if !keys.insert(key).inserted { return true }
+                }
+            default: i += 1
+            }
+        }
+        return false
+    }
     public func submit(commandJSON: String, timeoutMilliseconds: Int = 15_000) async throws -> String {
         let object = commandJSON.utf8.count <= 16_384 ? (try? JSONSerialization.jsonObject(with: Data(commandJSON.utf8))) as? [String:Any] : nil
+        if object != nil, Self.hasDuplicateTopLevelKeys(commandJSON) {
+            revokeOccupancy()
+            throw NativeEngineRuntimeError.unavailable("Duplicate top-level command key.")
+        }
         let parsedKind = object?["kind"] as? String
         // Setting on: a command this side cannot classify (oversized, unparseable, no kind) may have been a tracker
         // request, so it revokes too before it is refused below. With the setting off revokeOccupancy() does nothing.

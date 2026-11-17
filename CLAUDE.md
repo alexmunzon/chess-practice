@@ -1,4 +1,6 @@
-# Chess Practice (Claude orchestration notes)
+# Chess Practice (project orchestration notes)
+
+Current execution uses ChatGPT workers. Older Claude/Opus references below describe historical sessions; use NEXT-SESSION-PROMPT.md and the latest session handoff for the current workflow. The repository is now public. Final verified November 17 checkpoint: 12/12 suites and 34/34 phone checks; actual publication is recorded in Git history.
 
 Home of the project since 2026-11-15: `/Users/alexmunzon/chess-practice`. It was copied from
 `/Users/alexmunzon/Documents/Codex/2026-10-30/task-3/chess-practice`, which is left untouched as a
@@ -17,8 +19,10 @@ the worker brief template), then `AGENTS.md` (safety and scope rules, still bind
 scripts/check-all.sh
 ```
 
-It runs `npm test` and the Python recognition tests and ends with "n of m suites passed"
-(`--quick` runs only `npm test`). Status that a new session should read first and then re-check
+It runs `npm test`, the Python recognition tests, and `scripts/check-native.sh` on macOS,
+then ends with "n of m suites passed". Native gates are explicitly skipped (not passed) on other
+platforms. `--quick` runs only `npm test`. The native gates compile the actual app adapter and
+test duplicate-command refusal/revocation with tracking off/on. Status that a new session should read first and then re-check
 is in `orchestrator-state.json`.
 
 `npm test` on its own is the Node suite. Expected: 0 failures (397 tests, 389 pass, 8 skipped as of 2026-11-17 07:15; `scripts/check-all.sh` 11 of 11 suites, re-run 11:20; the count rises as
@@ -51,7 +55,7 @@ The app was signed and installed on Alex's iPhone 17 (iOS 27.2) on 2026-11-15; s
 ## Ownership
 
 Fable orchestrates: plan, priorities, integration and review. Subagents get one focused task and
-their own files to write. Work is committed on `main` in checkpoints (latest: the 2026-11-17 checkpoint, see `git log -1`, NOT pushed; the last pushed commit is `e482729`, 2026-11-16, on the private GitHub repo `alexmunzon/chess-practice`; each push needs Alex's words),
+their own files to write. Work is committed on `main` in checkpoints (latest `53a8bfa`, 2026-11-17, pushed to the private GitHub repo `alexmunzon/chess-practice` on Alex's words; each push needs his words again),
 but workers usually have uncommitted files in flight, so a git worktree would miss those; isolate
 agents by giving each its own files or directory to own, never two writers on one file, and keep
 build outputs outside the repo. Only one worker at a time uses the iOS Simulator, and heavy render

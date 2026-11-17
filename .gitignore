@@ -11,3 +11,6 @@ device.json
 # stray debug output at the repo root (generated media stays outside the repo)
 /*.png
 /*.mp4
+
+# Local Python test environment (see README).
+.venv/

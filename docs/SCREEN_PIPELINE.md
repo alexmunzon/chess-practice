@@ -165,7 +165,7 @@ Measured 2026-11-17. **Simulated pictures, scored on a Mac**; not real screens, 
   square). The self-check closes the gap between the start check and the reader, not errors of the reader itself, so
   these stay covered only by the person who reviews the start.
 
-## Corner finder choice (added 2026-11-17; default unchanged: `original`)
+## Corner finder choice (updated 2026-11-17; default: `round2`)
 Two finders, chosen by name with `set_finder(name)` or `--corner-finder` on either script (`FINDERS` in
 `screen_pipeline.py`, both binaries in `/Users/alexmunzon/chess-builds/pipeline-2026-11-15/pipeline/bin/`):
 `original` = `screen-board-detect` (sha256 `b5774046…`, frozen) and `round2` = `screen-board-detect-round2`, an
@@ -173,16 +173,38 @@ unchanged copy of `corner-finder-2026-11-16/round2/bin-new2` (sha256 `3292bcae�
 - An unknown name, or a binary that is missing or not executable, is refused (`SystemExit`) and the current finder stays.
   If the chosen binary disappears after it was chosen, every picture becomes `detector-error`: the pipeline never falls
   back to another finder. `set_finder` returns the old name so a caller can put it back.
-- With the default the policy document and its hash are unchanged (`37c2ca07…` on smoke2). With `round2` the policy
-  gains `cornerFinder` (name and binary sha256), so its hash differs (`2135830b…`).
-- Default unchanged, proved: smoke2 scored before and after the change with default settings, 13 of 13 result files
+- `round2` is now the library and CLI default. `--corner-finder original` retains the original finder.
+  The policy always identifies `round2` with `cornerFinder` (name and binary sha256), including when it is the
+  default. Explicit `original` retains its historical policy layout and hash; changing the default cannot make
+  round2 results appear to use the original policy.
+- Historical selection-only change (before the default switch): smoke2 scored before and after with original settings, 13 of 13 result files
   identical with wall-clock fields removed, same policy hash.
 - Tests: `test_corner_finder_default_and_selection`, `test_unknown_corner_finder_is_refused`,
-  `test_missing_corner_finder_fails_closed`; `setUp` puts the finder back to `original`. 5 of 5 deliberately broken
+  `test_missing_corner_finder_fails_closed`; cleanup puts the finder back to `round2`. In the earlier selection-only review, 5 of 5 deliberately broken
   versions of the code (no existence check, no name check, missing binary falls back to the original or to another
   finder, option ignored) each fail at least one of them.
 
-Measured 2026-11-17 on the development splits only (stressheld was NOT scored again). **Simulated pictures, scored on
+### Default-switch verification (2026-11-17, Mac and simulated pictures)
+
+The full pipeline suite passed **51 of 51** checks. The three new parser/metadata tests passed **3 of 3**;
+against the prior committed implementation, **0 of 3** passed (expected), so they detect the changed behaviour.
+An independent focused review accepted the change: **4 of 4** independent checks and **3 of 3** deliberately
+broken variants caught (reviewer-reported).
+
+All **4 of 4** development splits were re-scored using the implicit default. After excluding wall-clock and
+debug-image-path fields, their reports and every trace matched the earlier explicit `round2` runs:
+**13 of 13** JSON files on smoke2, **73 of 73** on dev, **73 of 73** on dev2, and **217 of 217** on stressdev
+(**376 of 376** total). The policy hashes also matched. This verifies that the new default reproduces the existing
+round2 results; it is not a fresh accuracy estimate. No held-out data was used and no fixtures were re-rendered.
+The earlier one-picture mistakes, review costs and lens-distortion limits in the table below still apply.
+
+Evidence: `/Users/alexmunzon/Documents/Codex/2026-11-17/pr/work/corner-default/` contains `full-tests.log`,
+`focused.log`, `old-code.log`, each split's log, `development-summary.json`, and the exact bounded rerun script
+`run_development.py`. All four scorer commands exited zero. macOS refused the requested `nice` priority change;
+the scorer still ran one process at a time. Existing NumPy numeric warnings on stressed pictures and test
+resource-close warnings remain in the logs rather than being suppressed.
+
+Earlier measurements from 2026-11-17, before switching the default, on the development splits only (stressheld was NOT scored again). **Simulated pictures, scored on
 a Mac** (shared, loaded machine); not real screens, not the phone. Default reader v3.1, default scorer settings.
 "Wrong moves" = accepted wrong moves at two-picture agreement, self-aware headline mode (worst of the three modes in
 brackets), out of the positions scored. Re-reviews per 100 positions: two pictures, self-aware.
@@ -228,7 +250,9 @@ python3 -B scripts/recognition/evaluate_screen_pipeline.py --scenes ROOT --split
   [--classifier v3|v2] [--agree 1,2,2of3] [--self-aware-n 2,4] [--allow-detector-errors] [--start-fallback v4] \
   [--start-self-check] [--corner-finder original|round2]
 ```
-`--detector PATH` still runs any binary by path; giving it together with a non-default `--corner-finder` is refused.
+`--detector PATH` still runs any binary by path; giving it together with any explicit `--corner-finder` is refused. A custom binary does not require an
+installed named finder. Reports identify the actual binary: recognized paths retain their finder identity; other
+paths record `cornerFinder.name = custom`, the path and SHA-256.
 Held-out splits refuse to run unless `ORCHESTRATOR_HELDOUT_RUN=1`. Exit code 2 = detector errors.
 
 ## Scorer

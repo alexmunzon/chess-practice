@@ -1,5 +1,37 @@
 # Chess Companion plan
 
+## Verified checkpoint — 17 November 2026
+
+Parent final combined check: **12/12 suites**, including native **26/26**; npm **389 pass, 0 fail, 8 skip** out of 397. Guard **36/36**, pipeline **51/51**, freshness **16/16**. Updated real-phone self-test **34/34** with zero speech requests; normal build restored. Earlier interrupted phone attempt and signing-folder failure are retained in the session record.
+
+Guard, runtime, freshness and corner selection changes received fresh independent review. Four development splits match the prior reviewed detector results: **376/376 JSON files**, excluding timing/debug paths; this is equivalence, not new accuracy. All held-out sets remain spent; no new held-out evaluation. King/queen experimental work remains incomplete, tracking stays off and the piece guard stays disconnected. Source CI has pinned dependencies and least-privilege settings; actual Linux runs are recorded in [GitHub Actions](https://github.com/alexmunzon/chess-practice/actions).
+
+Exact commands, all run outcomes, component-versus-app evidence limits, failures and local evidence paths are in [the completed session record](../SESSION-HANDOFF-2026-11-17.md). This checkpoint supersedes the earlier summaries below.
+
+
+## Current direction — November 17, 2026
+
+The source repository is public at [alexmunzon/chess-practice](https://github.com/alexmunzon/chess-practice). The last committed checkpoint is `53a8bfa`; a public repository does not imply a production-ready app or packaged binary release. The dated sections below preserve earlier decisions and results. This section takes precedence over their obsolete statements about repository visibility, installation, or the current backlog.
+
+**Working product:** offline iPhone Study and Replay with local rules/Stockfish and explicit review, plus a loopback browser development interface. The phone self-test for `53a8bfa` passed 34 of 34 checks in two complete November 17 runs using scripted review and synthetic pictures. Current working-tree changes need their own validation.
+
+**Current priorities:**
+
+1. Complete and independently review the piece-guard fix; keep it disconnected until integration is separately checked.
+2. Close the ambiguous two-`kind` command gap in the native runtime and strengthen the gate tests. A green suite that accepts the old behavior is not evidence of a fix.
+3. Integrate the native gate check into the normal check command after the fix is reviewed.
+4. Use the reviewed round-two corner finder as the default after compatibility checks; it is an improvement, not protection against lens distortion.
+5. Keep king/queen naming disabled pending a completed, reviewed study using runtime-available inputs and legal play.
+6. Improve public documentation and setup reproducibility without presenting external fixture-dependent research checks as a clean-clone build.
+
+**Boundaries that remain:** no live camera/glasses flow; no demonstrated physical-board accuracy; no audible-output validation. The additional occupancy tracker remains off by default and the piece guard remains disconnected. All existing held-out picture sets are spent.
+
+**Simulator correction:** November 17 instrumentation identified intermittent engine freezes, not a search running “35x slower.” Machine load does not establish the cause. Eighteen of 21 misses went silent after normal-speed search; three did not answer the first command. Cause unresolved; investigation parked. Recorded phone searches had zero misses in 470 attempts. These counts are environment-specific observations, not reliability guarantees.
+
+See [VERIFICATION.md](VERIFICATION.md) for dated checks and evidence. The remaining sections are historical planning records; read their dates before using a claim as current status.
+
+## Historical plan — November 16 and earlier
+
 Updated November 16, 2026, about 05:45 Madrid (the handoff time), after the overnight session. The
 last commit is still checkpoint `46ce560` (6 commits, no remote); everything since is uncommitted.
 This replaces the November 11–13 plan (see "History of the plan" at the end). Exact
@@ -75,7 +107,7 @@ physical-board accuracy. **Orchestrator-run** means the orchestrator ran the che
 | Tracker holes that STAY open (documented) | The moving piece itself swapped or substituted (5 of 5); an exchange completed between two consecutive pictures with nothing hidden (34 of 34); castling can end with king and rook interchanged (2 of 5); a bare `snapshot()` without a time stays ready. Only piece identification closes the first three | Mac, pure logic, synthetic errors | same folders |
 | Tracker wired into the app, OFF by default | Launch argument `--occupancy-tracker-on` (`TrackerSetting.swift`); four request kinds in their own pending slot; any failed tracker request revokes; stop is never refused; page gate independent. Reviewed twice; the second review's one finding (an unclassifiable command did not revoke) was fixed by the orchestrator in `NativeEngineRuntime.submit`, and the reviewer's harness then held 13 of 13. No picture source exists, so only scripted readings exercise it. `answerPromotion` is not wired (a promotion revokes) | Mac, Swift harnesses, scripted readings | `CB/tracker-wiring-2026-11-16/`, `review-tracker-wiring-2026-11-16/`, `review-tracker-wiring-round2-2026-11-16/` |
 | Phone self-test with the tracker wired in (tracker off) | 33 of 33 at 18:14 (30 old + 3 tracker checks), 1 of 1 run. Normal build `phone2/device-normal` (unsigned sha `ed426961…`) restored on the phone, tracker off | Real phone, scripted review, orchestrator-run | `CB/tracker-wiring-2026-11-16/phone-run1/` |
-| Simulator A/B on a calm host | Engine deadline misses 5 of 100 (changed) vs 15 of 100 (previous commit), order alternated, 4 runs each: the change did not slow the engine; the earlier imbalance was host load (worker-reported) | Simulator, agent-reported | `CB/tracker-wiring-2026-11-16/round2/ab-table.txt` |
+| Simulator A/B on a calm host | Engine deadline misses 5 of 100 (changed) vs 15 of 100 (previous commit), order alternated, 4 runs each: the change did not slow the engine in that comparison; the earlier attribution to host load is superseded by the November 17 freeze investigation (worker-reported) | Simulator, agent-reported | `CB/tracker-wiring-2026-11-16/round2/ab-table.txt` |
 | Reader start backup (`START_FALLBACK_CLASSIFIER`, `--start-fallback v4`) | Built, OFF. v3.1 first, v4.3 only when v3.1 fits no orientation; the accepting reader reads the rest of the game; a self-check re-reads the start picture (all 64 squares must match). `stressdev` starts 27 -> 30 of 36, two-picture wrong moves 0 on 5 splits, fallback off identical to committed code (worker-reported); pipeline tests 40 of 40 (orchestrator-run). Alex decided 2026-11-16: v3.1 stays the default, v4.3 only as a start backup; the orchestrator recommends leaving the backup off | Mac, simulated images, worker-reported; tests orchestrator-run | `CB/reader-fallback-2026-11-16/` |
 | Reader v4.3 review (answers the older "no review of its own") | Verdict NO for the backup as first built: its start check accepted 66 of 107 not-the-start pictures in the flat style (orchestrator re-ran: 66 of 107). With the self-check: 11 of 107 (all an extra piece under an 80-95% layer in exactly the board colour). 9 of 24 removed rules are caught by no test. Later-picture reading held up | Simulated images, reviewer; 66 of 107 orchestrator-run | `CB/review-reader-v43-2026-11-16/` |
 | Piece reader prototype v1 (`scripts/recognition/piece_classifier_v1.py`, sha `e5c31e2ef64f…`, 11 tests) | Learns piece shapes from the reviewed start picture; names a piece only when the best match is 2x the second. Builder: dev2 25,619 of 28,257 correct, 0 wrong; stressdev 40,245 of 42,081, 0 wrong; swaps and substitutions none missed in 7,218 each. Review (counts reproduced): usable as a guard that can only WITHHOLD advice, not as confirmation. Confident-wrong found: mid-game start with reduced material 12 of 5,760; arrow or glare in the start picture 44 in 6 of 12 games; a kind never shown 81 of 6,689; mid-move pictures 5; heavy blur/lens 44 of 25,344. Not registered in the pipeline | Simulated images; builder numbers, review reproduced counts | `docs/PIECE_CLASSIFIER.md`; `CB/piece-classifier-2026-11-16/`, `review-piece-reader-2026-11-16/` |

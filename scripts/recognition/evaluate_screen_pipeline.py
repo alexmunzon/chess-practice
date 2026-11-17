@@ -283,7 +283,7 @@ def evaluate_games(scenes, split, out, binary, agrees=('1', '2'), self_ns=(), al
     (out / 'traces').mkdir(parents=True, exist_ok=True)
     modes = mode_names(self_ns)
     report = {'schema': 'screen-pipeline-eval-v3', 'split': split, 'scenes': str(scenes),
-              'classifier': sp._CLASSIFIER['name'], 'policy': sp.policy(),
+              'classifier': sp._CLASSIFIER['name'], 'policy': sp.policy(binary),
               'note': ('simulated images only; start pictures = simulated review; re-review = simulated human '
                        '(oracle); self-aware = human only when the pipeline asks; headline = self-aware'),
               'truthUsedByScorer': ['startFen (pipeline input)', 'number of start pictures (positionIndex 0)',
@@ -339,7 +339,7 @@ def evaluate_games(scenes, split, out, binary, agrees=('1', '2'), self_ns=(), al
             print(f"{g['id']}: " + '; '.join(line), flush=True)
     for c in agrees:
         old = _apply(c)
-        cfg = {'policy': sp.policy(), 'modes': {}}
+        cfg = {'policy': sp.policy(binary), 'modes': {}}
         for mode in modes:
             st = store[c][mode]
             cfg['modes'][mode] = summarise(f'agree{c}/{mode}', st['records'], st['summaries'], st['positions'],
@@ -639,7 +639,7 @@ def evaluate_single(root, split, out, binary):
                         b[k] += r[name][k]
                     b['all64'] += r[name]['correct'] == 64
                     b['zeroWrong'] += r[name]['wrong'] == 0
-    report = {'schema': 'screen-pipeline-single-v1', 'split': split, 'root': str(root), 'policy': sp.policy(),
+    report = {'schema': 'screen-pipeline-single-v1', 'split': split, 'root': str(root), 'policy': sp.policy(binary),
               'note': 'simulated images only; rotation for non-start scenes chosen nearest TRUE corners '
                       '(evaluation aid; tests detector+rectify+classifier, not orientation)',
               'calibrationScene': cal_scene, 'negatives': {'n': len(negatives), 'found': neg},
@@ -674,8 +674,9 @@ def main():
     ap.add_argument('--single-scenes', type=Path)
     ap.add_argument('--single-split', default='dev', choices=['dev', 'heldout'])
     ap.add_argument('--out', required=True, type=Path)
-    ap.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides --corner-finder)')
-    ap.add_argument('--corner-finder', default=sp.DEFAULT_FINDER, choices=sorted(sp.FINDERS),
+    finder_args = ap.add_mutually_exclusive_group()
+    finder_args.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides default finder)')
+    finder_args.add_argument('--corner-finder', default=None, choices=sorted(sp.FINDERS),
                     help=f'corner finder by name (default {sp.DEFAULT_FINDER})')
     ap.add_argument('--classifier', default=sp.DEFAULT_CLASSIFIER, choices=sorted(sp.CLASSIFIERS))
     ap.add_argument('--agree', default='1,2', help='configs side by side: 1, 2, 2of3 (window alternative)')
@@ -687,9 +688,8 @@ def main():
     ap.add_argument('--start-self-check', action='store_true',
                     help='the default reader must read its start picture back as the stated start (off by default)')
     a = ap.parse_args()
-    if a.detector is not None and a.corner_finder != sp.DEFAULT_FINDER:
-        ap.error('give --detector or --corner-finder, not both')
-    sp.set_finder(a.corner_finder)
+    if a.detector is None:
+        sp.set_finder(a.corner_finder or sp.DEFAULT_FINDER)
     detector = a.detector if a.detector is not None else sp.finder_path()
     sp.POLICY['AGREE_INTERRUPTION'] = a.agree_interruption
     sp.set_classifier(a.classifier)

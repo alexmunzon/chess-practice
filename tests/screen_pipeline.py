@@ -9,6 +9,8 @@ import contextlib
 import importlib.util
 import tempfile
 import unittest
+from unittest import mock
+import io
 
 import numpy as np
 from PIL import Image
@@ -228,10 +230,10 @@ class ScreenPipelineTests(unittest.TestCase):
         return Path(d) / 'x.png'
 
     def test_corner_finder_default_and_selection(self):
-        self.assertEqual((sp.DEFAULT_FINDER, sp._FINDER['name']), ('original', 'original'))
-        self.assertEqual(sp.finder_path(), sp.DEFAULT_DETECTOR)  # default = the frozen original binary
+        self.assertEqual((sp.DEFAULT_FINDER, sp._FINDER['name']), ('round2', 'round2'))
+        self.assertEqual(sp.finder_path(), sp.FINDERS['round2'])  # library default is the reviewed finder
         self.assertEqual(sp.FINDERS['round2'].name, 'screen-board-detect-round2')
-        self.assertNotIn('cornerFinder', sp.policy())  # default: policy hash layout unchanged
+        self.assertEqual(sp.policy()['cornerFinder']['name'], 'round2')  # default still identifies the actual finder
         with tempfile.TemporaryDirectory() as d:
             img = str(self._tagged_finders(d))
             for name, tag in (('fakeA', 'fake-a'), ('fakeB', 'fake-b'), ('fakeA', 'fake-a')):
@@ -252,11 +254,69 @@ class ScreenPipelineTests(unittest.TestCase):
                 self.assertFalse(det['found'])
                 self.assertFalse(det.get('error'))
 
+    def test_cli_corner_defaults_original_and_custom_override(self):
+        # Exercise both actual argument parsers while replacing only the expensive scoring work.
+        cases = (([], 'round2', None), (['--corner-finder', 'original'], 'original', None),
+                 (['--detector', '/custom/detect'], 'original', Path('/custom/detect')))
+        for module in (sp, ev):
+            for extra, expected_name, custom in cases:
+                sp._FINDER['name'] = 'original'  # CLI must actively select its default
+                argv = ['pipeline', '--scenes', '/scenes', '--out', '/out']
+                argv += ['--game', 'g'] if module is sp else ['--split', 'dev']
+                with self.subTest(module=module.__name__, extra=extra), mock.patch.object(sys, 'argv', argv + extra), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    if module is sp:
+                        result = {'frames': [{'status': 'unchanged', 'trackedFen': START}]}
+                        with mock.patch.object(sp, 'load_games', return_value={'games': [{'id': 'g'}]}), \
+                             mock.patch.object(sp, 'run_game', return_value=result) as run:
+                            sp.main()
+                        self.assertEqual(run.call_args.args[3], custom)
+                    else:
+                        with mock.patch.object(ev, 'evaluate_games') as run:
+                            ev.main()
+                        self.assertEqual(run.call_args.args[3], custom or sp.FINDERS[expected_name])
+                    self.assertEqual(sp._FINDER['name'], expected_name)
+
+    def test_custom_detector_works_without_installed_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            detector = self._fake_detector(d, 'exit 0')
+            sp.FINDERS['round2'] = Path(d) / 'missing-default'
+            sp.FINDERS['original'] = Path(d) / 'missing-original'
+            for module in (sp, ev):
+                argv = ['pipeline', '--scenes', '/scenes', '--out', '/out', '--detector', str(detector)]
+                argv += ['--game', 'g'] if module is sp else ['--split', 'dev']
+                with self.subTest(module=module.__name__), mock.patch.object(sys, 'argv', argv), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    if module is sp:
+                        with mock.patch.object(sp, 'load_games', return_value={'games': [{'id': 'g'}]}), \
+                             mock.patch.object(sp, 'run_game', return_value={'frames': [
+                                 {'status': 'unchanged', 'trackedFen': START}]}) as run:
+                            sp.main()
+                    else:
+                        with mock.patch.object(ev, 'evaluate_games') as run:
+                            ev.main()
+                    self.assertEqual(run.call_args.args[3], detector)
+            meta = sp.policy(detector)['cornerFinder']
+            self.assertEqual(meta, {'name': 'custom', 'binaryPath': str(detector),
+                                    'binarySha256': sp._file_sha256(detector)})
+            self.assertNotEqual(sp.policy(detector)['sha256'], sp.policy()['sha256'])
+
+    def test_cli_rejects_explicit_detector_and_named_finder_together(self):
+        for module in (sp, ev):
+            for name in ('original', 'round2'):
+                argv = ['pipeline', '--scenes', '/scenes', '--out', '/out', '--detector', '/custom/detect',
+                        '--corner-finder', name]
+                argv += ['--game', 'g'] if module is sp else ['--split', 'dev']
+                with self.subTest(module=module.__name__, name=name), mock.patch.object(sys, 'argv', argv), \
+                     contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                    module.main()
+                self.assertEqual(error.exception.code, 2)
+
     def test_unknown_corner_finder_is_refused(self):
         with self.assertRaises(SystemExit) as ctx:
             sp.set_finder('round9')
         self.assertIn('unknown corner finder', str(ctx.exception))
-        self.assertEqual(sp._FINDER['name'], 'original')  # a failed switch changes nothing
+        self.assertEqual(sp._FINDER['name'], 'round2')  # a failed switch changes nothing
 
     def test_missing_corner_finder_fails_closed(self):
         with tempfile.TemporaryDirectory() as d:

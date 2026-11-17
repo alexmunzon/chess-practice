@@ -1,8 +1,8 @@
 #!/bin/bash
-# One command for every project check: the Node suite plus the Python recognition tests.
+# Main regression entry point: Node, Python recognition, and native tracker gates on macOS.
 # Run from anywhere, OUTSIDE a command sandbox (npm test opens 127.0.0.1 listeners; "listen EPERM"
 # means sandbox, not a code failure). Prints one line per suite and "n of m suites passed".
-# Exit 0 only if every suite passed. Usage: scripts/check-all.sh [--quick]  (--quick skips Python)
+# Exit 0 only if every suite passed. Usage: scripts/check-all.sh [--quick]  (--quick runs only the Node suite)
 cd "$(dirname "$0")/.." || exit 1
 LOG_DIR="${CHECK_LOG_DIR:-${TMPDIR:-/tmp}/chess-check-$$}"
 mkdir -p "$LOG_DIR"
@@ -22,6 +22,11 @@ if [ "$1" != "--quick" ]; then
   for t in screen_pipeline occupancy_classifier_v3 occupancy_classifier_v4 occupancy_classifier piece_classifier_v1 piece_classifier_v2 piece_guard screen_game_scenes mock_glasses_video mock_glasses_frame_age; do
     if [ -f "tests/$t.py" ]; then run_suite "py-$t" python3 -B "tests/$t.py"; fi
   done
+  if [ "$(uname -s)" = "Darwin" ]; then
+    run_suite native-tracker-gates scripts/check-native.sh
+  else
+    echo "SKIP  native-tracker-gates (requires macOS and Xcode; not counted as passed)"
+  fi
 fi
 echo "$passed of $total suites passed"
 [ -z "$failed_names" ] || { echo "failed:$failed_names"; exit 1; }

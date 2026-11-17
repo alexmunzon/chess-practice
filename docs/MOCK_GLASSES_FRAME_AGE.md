@@ -5,6 +5,155 @@ so every number below describes the mock and the harness, never real glasses. Th
 every glasses frame is still `.unknownDAT` and can never get a permit. Evidence (outside the repo):
 `/Users/alexmunzon/chess-builds/mock-glasses-phase5-2026-11-16/` (`run1..3/`, `run1..3-summary.json`, `mutation-check.txt`).
 
+## Code round 2 (2026-11-17): review fixes for the session value, the counter and the reader
+
+Simulated video on the Mac only, as before. Evidence (outside the repo):
+`/Users/alexmunzon/chess-builds/frame-age-method1-2026-11-17/round2/` (`CHECKLIST.md`, `standard/`, `restart/`,
+`restart-reused/`, `tables-round2.txt`, `mutate-round2.log`, `remeasure-check.log`). An independent review
+(`/Users/alexmunzon/chess-builds/review-frame-age-method1-2026-11-17/`) found the gaps below. Numbers marked
+"reviewer" come from that review and were not re-run here; numbers marked "re-measured" come from this round's runs.
+
+**The counter runs out after about 32 minutes.** The 2-symbol counter has 31^2 = 961 values. At one code every 2 s
+it is used up after 1,922 s (about 32 minutes). It must never wrap: a wrapped counter repeats codes the log has already
+seen, and the reviewer measured that every fresh picture is then refused (20,000 of 20,000, reviewer). At counter 960
+the display must end the session and start a new one: a newly drawn session value, the counter back at 0 and an empty
+display log. `encode_code` now refuses counter 961 (and any value outside 0..960) and any session value that is not
+4 symbols in 0..30, instead of wrapping silently.
+
+**The session value must be drawn again at every restart.** The session value must be drawn anew every time the counter
+or the display log restarts, not only once per stream, and in a real app it must come from a cryptographic random
+source. The harness draws it from a seeded generator so that runs repeat; that is fine for a simulation and wrong for
+an app. The harness now models a restart inside a stream (`--restart-at 50`: 50 s into every stream the video starts
+again at frame 0, the log is emptied and a new value is drawn; the stream goes on). Pictures shown before the restart
+and judged after it, old ones accepted: 0 of 7261 with a new value; 1536 of 7261 when the old value is kept
+(`--reuse-session-on-restart`; 512, 511, 513 per seed; all are 20 s replays) (re-measured, 3 seeds x 33 streams). The
+reviewer's simpler model gave 0 of 12,849 and 7,976 of 12,927 (reviewer). The cost: fresh pictures shown before the
+restart and judged after it are refused, 376 of 376 (re-measured). With the restart the controls stay at 0 of 38629
+old accepted. The restart also resets the 30 s video loop, so the next-code misread (assumption 5) has more first-loop
+time to work in: 332 of 915 with restarts against 152 of 922 without (re-measured).
+
+**Forbidden reader design: "keep the last good value".** A reader that returns the last valid code it saw when it cannot
+read the current one lets old pictures in. The harness now scores this design on every picture of the standard run
+(record field `acceptFallbackReader`; every other count is unchanged). Old pictures accepted: 830 of 70157 with the
+fallback against 152 of 70157 with the real reader (all 152 are the residual next-code misread) (re-measured, 3 seeds:
+274, 283, 273 of about 23,400 each). Where it bites: one random symbol wrong 150 of 934, counter misread +1 154 of 916
+and -1 151 of 897, 20 s replays 82 of 8712, 5 s replays 62 of 8712, previous-stream replays 79 of 8712; controls 0 of
+38629 (re-measured). On the synthetic video, seed 1, the harness reproduces the reviewer's 277 of 23,518 exactly
+(re-measured); the reviewer's queue model without any replay screen gave 276 of 5,324 (reviewer). The reader must
+refuse a picture whose code it cannot read as valid; it must never substitute an earlier code.
+
+**Check-digit pass rates** (check only, session not compared; the expected rate for a random error is 1 in 961):
+3-symbol changes 2113 of 2,000,000 (re-measured; reviewer 2,223 of 2,000,000); cyclic shifts by 1 to 7 positions 21 of
+20181 (re-measured; reviewer 14 of 20,174); one symbol dropped and the code padded back to 8, 42 of 68907
+(re-measured; reviewer 27 of 61,142); random 8-symbol strings 3111 of 3,000,000 (re-measured; reviewer 3,148 of
+3,000,000). Every 1- and 2-symbol change, counter +1 or -1, swap of two symbols and wrong length passed 0 times
+(reviewer). These rates are why the session value and the rule remain needed: the check digits alone let about 1 in
+1,000 badly garbled codes through.
+
+**A live relay of the current screen.** The reviewer relayed the current session's screen with delays of 0.01 to 2.9 s
+plus holds: 0 old accepted at every delay (reviewer), because the rule counts age from the code's first display, so a
+relay only adds to the measured age. The real gap is assumption 7: a picture whose code band comes from a fresh exposure
+while the board comes from an older one is accepted 20,000 of 20,000 times (reviewer).
+
+**Tests** (`tests/mock_glasses_frame_age.py`, 16 tests, 5 new): `encode_code` refuses bad session values and counter
+961; session values use all 4 symbols and differ between seeds; one-symbol misreads reach all 8 positions (including
+the check digits) and are all refused; a restart needs a new session value (0 accepted) and keeping the old one is
+caught (84 of 404 on the test run); the fallback reader is measured. The check-digit "can fail" probe now requires at
+least 10% of +1 misreads accepted when the check is skipped (the test run gives 11 of 53), not just more than 0.
+The reviewer's four surviving mutants (session value with only 31 possibilities, the same for every seed, counter 961
+accepted, one-symbol misread only in the check digits) are now caught, 4 of 4. Of the reviewer's other 19 faults and
+mutants plus 3 new ones for this round, 18 of 21 are caught; the 3 survivors are a stream check bypassed through the
+epoch argument (a picture from another stream is still refused by its session value), the sign of c1 flipped (still a
+distance-3 code) and `coded_evaluate` ignoring its `verify_session` switch (no harness path turns it off).
+
+**Standard runs unchanged.** Seeds 1-3, 33 streams, without restarts: every judgement is identical to the code round
+(103806 of 103806, 103620 of 103620, 103620 of 103620 records equal field by field; re-measured).
+
+## Code round (2026-11-17): session value and check digits in the on-screen code
+
+Simulated video on the Mac only, as in rounds 2-3: nothing here is measured on real glasses, the Simulator or the
+app. Evidence (outside the repo): `/Users/alexmunzon/chess-builds/frame-age-method1-2026-11-17/` (`CHECKLIST.md`,
+`before/`, `after/`, `drop-session/`, `drop-check/`, `tables.txt`, `mutate.py`, `mutation-results.txt`).
+
+**The code.** 8 symbols from a 31-symbol alphabet: a session value (4 symbols), the counter (2 symbols, here the
+video's code index) and 2 check digits, c1 = -(sum of the 6 message symbols) and c2 = -(sum of position x symbol),
+both modulo 31. Any two columns of the check are independent, so every change of 1 or 2 symbols is detected; a counter
+read as n+1 or n-1 changes at most 2 symbols, so it is always detected. The session value is drawn at random for each
+display session (in the harness: once per stream from a seeded generator, and again at every restart when
+`--restart-at` is used; a real app must use a cryptographic random source and draw again at every counter or log
+restart, see code round 2). The gate refuses a picture unless the check digits hold and the session value equals its own current
+one, then applies the unchanged rule (`NonceAgeGate`) to the counter with its own display log. It uses nothing else:
+not the scenario, not which pictures are replays. Code: `encode_code`, `read_code`, `coded_evaluate` in
+`analyze_frame_age.py`; the Mac harness uses them. `FrameAgeRules.swift` and `FrameAgeHarness.swift` are unchanged
+and still use the bare code index.
+
+Chances, by arithmetic (not measured): a valid code of another session passes only if the session values are equal,
+1 in 923,521 per pair of sessions; a random 8-symbol string passes the check 1 in 961 and both checks about 1 in 900
+million; a single wrong symbol or a neighbouring-counter misread never passes; 3 or more wrong symbols pass the check
+about 1 in 961. A reader that returns a complete, different valid code of the same session passes every check.
+
+**Mac results** (seeds 1-3, 33 streams of 100 s each; old = true age over 3.0 s; totals, each seed in
+`tables.txt`). "Before" is the round-3 code re-run in this round; it reproduces round 3 exactly. Scenario draws are
+the same before and after (the session value and misreads use their own random generators), so rows are paired.
+
+| Scenario | Before: old accepted | After: old accepted |
+| --- | --- | --- |
+| Controls, all exposures (incl. holds of 30-60 s) | 0 of 38629 | 0 of 38629 |
+| Second screen replaying the display 2, 5, 20 s late (same stream) | 0 of 1696, 0 of 8712, 0 of 8712 | same |
+| **Second screen replaying the previous stream** | **2033 of 8712** (676, 679, 678 per seed) | **0 of 8712** |
+| **Counter misread as the next counter** (before: the whole code +1) | **325 of 1850** (108, 109, 108) | **0 of 916** |
+| Counter misread as the previous counter | 0 of 1819 | 0 of 897 |
+| One random symbol wrong (new) | not modelled | 0 of 934 |
+| Complete valid code of the next counter (new, residual) | (this is the "before" +1 model) | **152 of 922** (53, 49, 50) |
+
+Before, a misread was modelled only as "the whole code +1". After, the misread segments are split 4 ways (counter
++1, counter -1, one random symbol, complete next code), so each after-row has about half the pictures.
+
+Cost, fresh pictures refused: controls 485 of 52988 in the first 30 s of a stream and 112276 of 112276 after the
+loop, identical before and after (the code changes nothing for a correctly read picture). All fresh pictures:
+155460 of 215358 before, 157132 of 215358 after; the 1672 extra are all in misread segments, where a misread code
+is now refused even when the picture is fresh (wanted).
+
+**The harness can still fail.** With one session value for every stream (`--drop-session-value`) the previous-stream
+replay is back to 2033 of 8712 (676, 679, 678 per seed). With the check digits skipped (`--drop-check-digits`) the
+counter +1 misread is back to 157 of 916 (50, 52, 55), and one random symbol wrong lets 1 of 934 through. The complete
+next-code misread stays at 152 of 922 in every run: no check digit can see it. The new tests pin all three (they run a
+6-stream synthetic version) and fail on the round-3 code. Faults and mutants (`mutate.py`, each runs the full test file on a changed copy): faults 19 of 20 as expected,
+including the 7 new ones (session value removed, check skipped, replay shown with the current session value, gate
+judging with the picture's own session value, a counter misread that re-encodes the check digits, and each "can fail"
+switch disabled). The unexpected one is again the short 2.5 s code cycle with the real rule: the rule stayed safe (0
+of 4386 old accepted, no bound below the true age), but the tests' "can fail" probes need the 15-code test video.
+Mutants: 34 of 34 caught. The first pass caught 31 of 34; two survivors were test gaps, now closed (the 2-symbol
+test did not isolate the check digits; the other-session test changed every session symbol at once) and one was a
+mutant that changed nothing (rewritten).
+
+**What this does and does not show.** The zeros above for the replay of the previous stream and for misreads hold by
+construction of the code (a session value that differs, a distance-3 check), on a harness that reports non-zero when
+either part is removed; more trials add no strength. They say nothing about real glasses. Assumptions that remain:
+1. The display log is never later than the moment a code becomes visible (unchanged).
+2. Log and judge share one clock (unchanged).
+3. Narrowed: no second source shows a code of the *current* session. A replay of an earlier session is refused unless
+   its session value equals the current one (1 in 923,521 per earlier session; the app must draw it with a
+   cryptographic random generator, the harness uses a seeded one), and only if the value is drawn again at every counter
+   or log restart (code round 2: kept across a restart, 1536 of 7261 old pictures accepted). A live relay of the
+   current screen only adds age and was refused at every delay the reviewer tried (0.01-2.9 s); the real gap there
+   is assumption 7.
+4. Each picture is assigned to the stream it was captured in (unchanged).
+5. Narrowed: the reader never returns a complete, different valid code of the current session (all 8 symbols
+   consistent). 1-2 wrong symbols are always refused; 3 or more pass the check about 1 in 961. Forbidden design: a
+   reader that keeps the last good value and returns it when it cannot read the current code (code round 2: 830 of
+   70157 old pictures accepted, against 152 of 70157 for a reader that refuses).
+6. Exposure plus rolling-shutter time stays within the margin (unchanged).
+7. Board and code are in the same exposure (unchanged). Broken, it lets every old board in: code from a fresh exposure,
+   board 3.5-60 s old, 20,000 of 20,000 accepted (reviewer).
+8. The log keeps the first display of each code (unchanged).
+9. New: the screen can show and the reader can read the 8-symbol code (about 40 bits) as one unit. Today's code band
+   carries 8 data bits plus a CRC-8; the harness assumes a picture reads the full code of the display frame the
+   project's reader decoded, and does not model blends of the extra symbols. Not built or measured.
+
+The counter still repeats every 30 s in the pinned video, so after the loop every fresh picture is still refused.
+With a real 961-value counter the same happens after about 32 minutes unless the session restarts (code round 2).
+
 ## Rounds 2-3 (2026-11-17): method 1 re-checked on simulated video on the Mac
 
 Simulated video on the Mac only: no Simulator, no Meta code, no real glasses. Evidence (outside the repo):
@@ -168,11 +317,17 @@ python3 -B native/MockGlassesProbe/build_frame_age_harness.py --frameworks $P/ph
 xcrun simctl install 746F2CEB-102D-4CFC-8D11-A5924705537F $O/build/FrameAgeHarness.app
 python3 -B $O/run_watch.py run4 250 local.chesscompanion.mockglasses.frameage FrameAgeHarness -- --frame-age
 python3 -B native/MockGlassesProbe/analyze_frame_age.py $O/run4/container/Documents/frame-age-report.json
-python3 -B tests/mock_glasses_frame_age.py   # no Simulator: 8 of 8 tests (Swift rule checks 38 of 38)
+python3 -B tests/mock_glasses_frame_age.py   # no Simulator: 16 of 16 tests since code round 2 (Swift rule checks 38 of 38)
 # Rounds 2-3, Mac only (R=/Users/alexmunzon/chess-builds/frame-age-round2-2026-11-17/round3):
 python3 -B native/MockGlassesProbe/frame_age_mac_sim.py --epochs 33 --seed 1 --out $R/mac-sim-seed1.json   # seeds 1-3
 python3 -B native/MockGlassesProbe/frame_age_mac_sim.py --epochs 33 --seed 1 --display-log-lag 0.23 --out $R/mac-sim-seed1-lag230ms.json  # exit 3
 python3 -B $R/mutate.py; python3 -B $R/recorded_checks.py   # faults, mutants; out-of-order frames in Phase 5
+# Code round (C=/Users/alexmunzon/chess-builds/frame-age-method1-2026-11-17): seeds 1-3, plus the two "can fail" probes
+python3 -B native/MockGlassesProbe/frame_age_mac_sim.py --epochs 33 --seed 1 --out $C/after/seed1.json --records $C/after/seed1-records.json
+python3 -B native/MockGlassesProbe/frame_age_mac_sim.py --epochs 33 --seed 1 --drop-session-value --out ...   # or --drop-check-digits
+python3 -B $C/tabulate.py; python3 -B $C/mutate.py all   # before/after tables; baseline, faults, mutants
+# Code round 2: standard, restart and restart-reused runs (seeds 1-3), tables, mutants, check-digit rates
+$C/round2/run_round2.sh; python3 -B $C/round2/compare_tabulate.py; python3 -B $C/round2/mutate_round2.py all; python3 -B $C/round2/remeasure_check.py
 ```
 
 Network watch (Phase 4b `run_watch.py`: lsof every 0.2 s, nettop every 1 s, system log for Meta host names, DNS, background
