@@ -150,11 +150,18 @@ test('d: pictures with unknown squares never advance the game, and agreement res
 test('d: an unusable picture suspends readiness without revoking; agreeFrames usable pictures restore it', () => {
   const { chess, send, hold } = setup(); send(); send();
   chess.move('e4'); // the board changed, but the camera only sees it with unknown squares
-  const hidden = send({ overrides: unknownAt('h8') });
+  // Round 7 (rule R1): was unknownAt('h8'); hiding the black rook during White's move now revokes (it could have been
+  // replaced unseen), so an empty square (h6) keeps this check about an unusable picture suspending readiness.
+  const hidden = send({ overrides: unknownAt('h6') });
   assert.equal(hidden.trackingReady, false); assert.equal(hidden.reason, 'unusable-picture'); assert.equal(hidden.fen, null);
   assert.equal(hold(MOVE).lastMove.san, 'e4');
+  // Round 7 changed this expectation: occluding the h8 ROOK and then seeing the same board used to restore
+  // readiness; with no move in between the rook could have been replaced unseen, so it now revokes. An occluded EMPTY
+  // square still only suspends readiness.
+  send({ overrides: unknownAt('h5') }); send();
+  assert.equal(send().trackingReady, true, 'same position seen again after an occlusion of an empty square');
   send({ overrides: unknownAt('h8') }); send();
-  assert.equal(send().trackingReady, true, 'same position seen again after an occlusion');
+  assert.equal(send().reason, 'pieces-may-have-swapped', 'occluded piece, no move: revokes (round 7)');
 });
 test('d: more than maxSkippedUnusable unusable pictures in a row revoke; strict maxSkippedUnusable 0 revokes on the first', () => {
   const { send } = setup(); send(); send();
@@ -172,7 +179,8 @@ test('d: more than maxSilenceMs without a usable picture revokes (via a late pic
   assert.equal(late.send({ dt: 1001 }).reason, 'observation-timeout');
   assert.equal(late.send().trackingReady, false);
   const ticked = setup(); ticked.send(); ticked.send();
-  assert.equal(guard(ticked.tracker.tick(ticked.now() + 500)).trackingReady, true);
+  // Round 7: was now() + 500; a tick more than maxPictureGapMs (250) after the last picture now revokes 'picture-gap'.
+  assert.equal(guard(ticked.tracker.tick(ticked.now() + 250)).trackingReady, true);
   assert.equal(guard(ticked.tracker.tick(ticked.now() + 1001)).reason, 'observation-timeout');
   // unusable pictures do not refresh the watchdog
   const blind = setup(START, { maxSkippedUnusable: 50 }); blind.send(); blind.send();
@@ -414,12 +422,14 @@ test('R4 S2-2: any skipped picture (unknowns or in transit) voids agreement coll
     const { chess, send, hold } = setup(START, options); send(); send(); chess.move('e4');
     send();
     if (options.inTransitTolerance) assert.equal(send({ board: lifted(new Chess(), 'e2') }).event, 'skipped-in-transit');
-    else assert.equal(send({ overrides: unknownAt('h8') }).event, 'skipped-unusable');
+    else assert.equal(send({ overrides: unknownAt('h6') }).event, 'skipped-unusable'); // round 7 (R1): was h8, the black rook
     assert.equal(send().event, 'agreement-pending', 'count restarts after the skipped picture');
     assert.equal(hold(MOVE - 1).lastMove.san, 'e4');
   }
-  const pre = setup(); pre.send({ overrides: unknownAt('a8') }); pre.send();
-  pre.send({ overrides: unknownAt('a8') });
+  // Round 7: the occluded square was a8 (a rook); with the round-7 rule that now revokes, so an empty square (a5) keeps this check
+  // about skipped pictures voiding agreement.
+  const pre = setup(); pre.send({ overrides: unknownAt('a5') }); pre.send();
+  pre.send({ overrides: unknownAt('a5') });
   assert.equal(pre.send().trackingReady, false, 'one settled picture after a skipped one is not enough');
   assert.equal(pre.send().trackingReady, true);
 });
@@ -684,9 +694,9 @@ test('R5 F1: refusals stay targeted: a piece resting on its path, castling and o
   for (let k = 0; k < 8; k++) last = castle.pic({ h1: 'empty', e1: 'empty', f1: 'white', g1: 'white' });
   assert.equal(last.lastMove.san, 'O-O');
   const hidden = rig(START); hidden.pic({ g1: 'unknown' });
-  // Not refused: the knight could only have traded places with a piece whose square no picture showed disturbed, i.e. within
-  // one picture gap (<= maxPictureGapMs). That is the documented residual window (review round 4, b1), pinned here.
-  assert.equal(hidden.pic().trackingReady, false); assert.equal(hidden.pic().trackingReady, true, 'residual window: see the doc');
+  // Round 7 changed this pin: it used to be trusted (the knight could have traded places with a piece inside one picture gap,
+  // the documented residual window). The round-7 rule closes that window, so a hidden piece followed by an unchanged board revokes.
+  assert.equal(hidden.pic().trackingReady, false); assert.equal(hidden.pic().reason, 'pieces-may-have-swapped', 'round 7');
 });
 test('R5 F1: a definite change that ends with the board unchanged revokes (changed-and-returned)', () => {
   const r = rig(START);
@@ -735,7 +745,7 @@ test('R5 F6: inputs are validated as plain copies: a getter cannot hand the trac
 test('R5 F3/F4: snapshot(atMs) runs the silence check; edit() and connect() revoke instead of throwing', () => {
   const r = rig(START);
   assert.equal(r.tracker.snapshot().trackingReady, true, 'without a time the reply is as fresh as the last picture');
-  assert.equal(r.tracker.snapshot(r.now() + 500).trackingReady, true);
+  assert.equal(r.tracker.snapshot(r.now() + 250).trackingReady, true); // round 7: was + 500 (now a picture-gap revoke)
   assert.equal(r.tracker.snapshot(r.now() + 1001).reason, 'observation-timeout');
   assert.throws(() => rig(START).tracker.snapshot(NaN));
   for (const call of ['edit', 'connect']) {
@@ -830,4 +840,190 @@ test('R6 pins: refusals that are the price of the swap rule (hidden rook during 
   assert.equal(last.reason, 'pieces-may-have-swapped', 'pawn and the hidden a1 rook could have traded squares');
   const back = rig(START); back.pic({ g1: 'empty', f3: 'white' });
   assert.equal(back.pic().reason, 'changed-and-returned', 'a piece set down and taken back costs a re-review');
+});
+
+// ---- round 7: fifth reviewer (each safety test fails against the round-6 module) ---------------------------------
+// Round 7 rule (reviewer's R1, either colour): a square hidden or disturbed since the last agreement that the move does not
+// change and that still holds a piece of EITHER side revokes, because that piece may have been traded inside one picture gap or
+// replaced by a spare/captured piece. Attacks ported from the reviewer's c1-hole.mjs (families A, B, D, D2) plus the
+// round-7 opponent probe.
+const putOn = (fen, sq, piece) => { const c = new Chess(fen); c.remove(sq); c.put(piece, sq); return placementOf(c.fen()); };
+const trustedWrong = (replies, truth) => replies.filter(x => x.trackingReady && placementOf(x.fen) !== truth).length;
+for (const inTransitTolerance of [false, true]) {
+  test(`R7 hole (a): two same-colour pieces trading squares while one square is hidden are never trusted (transit ${inTransitTolerance})`, () => {
+    let runs = 0;
+    for (const [X, Y] of [['b1', 'c1'], ['d1', 'c1'], ['a1', 'b1'], ['e2', 'b1'], ['e1', 'd1'], ['g1', 'h1']])
+      for (const k of [1, 2, 3]) for (const g of [150, 249, 250, 251]) {
+        const r = rig(START, { inTransitTolerance });
+        const truth = swappedPlacement(START, X, Y);
+        // X under a hand for k pictures; Y exchanged with X inside one gap of g ms; then the (swapped) board in plain view.
+        const out = [r.pic({ [X]: 'unknown' })];
+        for (let i = 1; i < k; i++) out.push(r.pic({ [X]: 'unknown' }, i === 1 ? g : 150));
+        out.push(r.pic({}, k === 1 ? g : 150)); for (let i = 0; i < 10; i++) out.push(r.pic());
+        assert.equal(trustedWrong(out, truth), 0, `hidden ${X} x${k}, ${Y} replaced in ${g} ms`);
+        runs++;
+      }
+    assert.equal(runs, 72);
+    // The same trade ending with a move of the same side (Nf3 or e4) while b1 is hidden.
+    for (const [from, to] of [['g1', 'f3'], ['e2', 'e4']]) {
+      const r = rig(START, { inTransitTolerance });
+      const after = new Chess(); after.move({ from, to });
+      const truth = swappedPlacement(fenOf(after), 'b1', 'c1');
+      const out = [r.pic({ b1: 'unknown' }), r.pic({ b1: 'unknown' })];
+      for (let i = 0; i < MOVE; i++) out.push(r.pic({ [from]: 'empty', [to]: 'white' }));
+      assert.equal(trustedWrong(out, truth), 0, `${from}${to}`);
+      assert.equal(out.at(-1).reason, 'pieces-may-have-swapped');
+    }
+  });
+  test(`R7 hole (b): a hidden piece replaced by a spare piece of the same colour is never trusted, however long (transit ${inTransitTolerance})`, () => {
+    const W = type => ({ type, color: 'w' });
+    for (const [Y, spare] of [['c1', 'n'], ['d1', 'n'], ['a1', 'q'], ['b1', 'b'], ['e2', 'q']]) for (const pattern of ['uu', 'uucuucuuc']) {
+      const r = rig(START, { inTransitTolerance });
+      const truth = putOn(START, Y, W(spare)); const out = [];
+      for (const ch of pattern) out.push(r.pic(ch === 'u' ? { [Y]: 'unknown' } : {}));
+      for (let i = 0; i < 10; i++) out.push(r.pic());
+      assert.equal(trustedWrong(out, truth), 0, `${Y} -> spare ${spare}, pattern ${pattern}`);
+    }
+    // Same, ending with a move of the SAME piece type (Bf1-c4 while the c1 bishop is replaced by a spare knight).
+    const OPEN = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const after = new Chess(OPEN); after.move('Bc4');
+    const truth = putOn(fenOf(after), 'c1', W('n'));
+    for (const hides of [[{ c1: 'unknown' }, { c1: 'unknown' }], [{ c1: 'unknown' }, { c1: 'unknown' }, { c1: 'unknown', f1: 'unknown' }]]) {
+      const r = rig(OPEN, { inTransitTolerance });
+      const out = hides.map(h => r.pic(h));
+      for (let i = 0; i < MOVE; i++) out.push(r.pic({ f1: 'empty', c4: 'white' }));
+      assert.equal(trustedWrong(out, truth), 0, `Bc4 with ${hides.length} hidden pictures`);
+      assert.equal(out.at(-1).status, 'needs-confirmation');
+    }
+  });
+}
+for (const inTransitTolerance of [false, true]) {
+  test(`R7 opponent hole: an opponent piece traded or replaced by a spare while the other side moves is never trusted (transit ${inTransitTolerance})`, () => {
+    const after = new Chess(); after.move('e4'); const AFTER = fenOf(after);
+    const e4 = { e2: 'empty', e4: 'white' };
+    for (const [X, Y] of [['b8', 'c8'], ['g8', 'h8'], ['d8', 'c8']]) {
+      // X under a hand, X and Y trade squares inside one gap, White plays e4.
+      const r = rig(START, { inTransitTolerance });
+      const out = [r.pic({ [X]: 'unknown' })];
+      for (let i = 0; i < 9; i++) out.push(r.pic(e4));
+      assert.equal(trustedWrong(out, swappedPlacement(AFTER, X, Y)), 0, `hidden ${X}, traded with ${Y}`);
+      assert.equal(out.at(-1).reason, 'pieces-may-have-swapped');
+    }
+    for (const [Y, type] of [['c8', 'n'], ['a8', 'q'], ['b8', 'b']]) {
+      // Y under a hand for two pictures and replaced by a spare black piece while White plays e4.
+      const r = rig(START, { inTransitTolerance });
+      const out = [r.pic({ [Y]: 'unknown' }), r.pic({ [Y]: 'unknown', ...e4 })];
+      for (let i = 0; i < 8; i++) out.push(r.pic(e4));
+      assert.equal(trustedWrong(out, putOn(AFTER, Y, { type, color: 'b' })), 0, `${Y} -> spare ${type}`);
+      assert.equal(out.at(-1).reason, 'pieces-may-have-swapped');
+    }
+  });
+}
+test('R7 hole (c) pinned, NOT a safety property: the moving piece itself swapped or substituted is still trusted (occupancy cannot see it)', () => {
+  // "Ng1-f3" where the bishop really lands on f3 and the knight on c1 (c1 exchanged inside one gap). If this ever stops
+  // being trusted, update docs/OCCUPANCY_TRACKER.md ("What occupancy can never detect").
+  const r = rig(START);
+  const out = [r.pic({ g1: 'unknown' }), r.pic({ g1: 'unknown', f3: 'unknown' })];
+  for (let i = 0; i < MOVE; i++) out.push(r.pic({ g1: 'empty', f3: 'white' }));
+  assert.equal(out.at(-1).lastMove.san, 'Nf3');
+});
+test('R7 gap rule in tick and snapshot: a feed that stops revokes once the clock is more than maxPictureGapMs past the last picture', () => {
+  const r = rig(START);
+  assert.equal(r.tracker.snapshot(r.now() + 900).reason, 'picture-gap', 'round 6 still said ready 900 ms after the last picture');
+  const t = rig(START);
+  assert.equal(guard(t.tracker.tick(t.now() + 250)).trackingReady, true, '250 ms is allowed');
+  assert.equal(guard(t.tracker.tick(t.now() + 251)).reason, 'picture-gap');
+  // Also while a move is being agreed, and right after a review with no picture yet.
+  const m = rig(START); m.pic({ e2: 'empty', e4: 'white' });
+  assert.equal(guard(m.tracker.snapshot(m.now() + 300)).reason, 'picture-gap');
+  const c = new OccupancyTracker({ instanceId: uid() }); c.confirm({ session: SESSION, fen: START, reviewed, atMs: 1000 });
+  assert.equal(guard(c.tick(1251)).reason, 'picture-gap');
+});
+test('R7 timing: 6 pictures per second with +-20 ms capture jitter stays trusted through a normal move; 4 per second has no margin', () => {
+  const r = rig(START);
+  const random = rng(7); let seq = r.seq(); const t0 = r.now();
+  const jitter = k => (k % 5 === 0 ? (k % 10 ? 20 : -20) : Math.round(random() * 40) - 20); // includes +20 / -20 extremes
+  const at = k => t0 + Math.round(k * 1000 / 6) + jitter(k);
+  const e4 = { e2: 'empty', e4: 'white' };
+  const replies = [];
+  for (let k = 1; k <= 30; k++) replies.push(r.raw(k <= 6 ? {} : e4, ++seq, at(k)));
+  assert.ok(replies.every(x => x.event !== 'revoked'), JSON.stringify(replies.find(x => x.event === 'revoked')));
+  assert.ok(replies.slice(0, 6).every(x => x.trackingReady), 'still board stays ready');
+  assert.equal(replies.at(-1).trackingReady, true); assert.equal(replies.at(-1).lastMove.san, 'e4');
+  assert.equal(r.tracker.snapshot(at(30) + 200).trackingReady, true, 'a snapshot between pictures stays ready');
+  // At exactly 4 per second (250 ms) one late picture by 1 ms revokes: the documented reason to ask for 6 per second.
+  const four = rig(START, {}); assert.equal(four.pic({}, 250).trackingReady, true);
+  assert.equal(four.pic({}, 251).reason, 'picture-gap');
+});
+
+// ---- round 7b: independent review of round 7 (each safety test fails against the round-7 module or a named mutant) ----
+const D5 = 'rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2'; // 1.e4 d5, White to play exd5
+for (const inTransitTolerance of [false, true]) {
+  test(`R7b F1: a captured piece whose square was hidden before the capture is not trusted (review G7, transit ${inTransitTolerance})`, () => {
+    // d5 under a hand while its pawn trades places with the d8 queen (or c8 bishop, a8 rook) inside one gap; then exd5 takes
+    // the piece that is really on d5. Round 7 removed "the pawn" and trusted a board with the black pawn missing from Y.
+    for (const Y of ['d8', 'c8', 'a8']) for (const hidden of [1, 2]) {
+      const r = rig(D5, { inTransitTolerance });
+      const out = []; for (let i = 0; i < hidden; i++) out.push(r.pic({ d5: 'unknown' }));
+      for (let i = 0; i < 9; i++) out.push(r.pic({ e4: 'empty', d5: 'white' }));
+      assert.ok(out.every(x => !x.trackingReady), `${Y} x${hidden}: no reply may be trusted (the true board has the black pawn on ${Y})`);
+      assert.equal(out.at(-1).reason, 'pieces-may-have-swapped', `${Y} x${hidden}`);
+    }
+    // Same with the capturing pawn already lifted while d5 is hidden (two hands): the readings equal an honest hand covering
+    // d5 during the capture, so that honest case revokes too (the documented price of this rule).
+    const two = rig(D5, { inTransitTolerance });
+    const out = [two.pic({ e4: 'empty', d5: 'unknown' })];
+    for (let i = 0; i < 9; i++) out.push(two.pic({ e4: 'empty', d5: 'white' }));
+    assert.ok(out.every(x => !x.trackingReady)); assert.equal(out.at(-1).status, 'needs-confirmation');
+    // En passant: the captured pawn's square (d5) hidden before exd6 revokes as well.
+    const EP = 'rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3';
+    const ep = rig(EP, { inTransitTolerance }); ep.pic({ d5: 'unknown' });
+    let last; for (let i = 0; i < 9; i++) last = ep.pic({ e5: 'empty', d5: 'empty', d6: 'white' });
+    assert.equal(last.reason, 'pieces-may-have-swapped');
+  });
+}
+test('R7b F1 pins: a capture whose captured square was never hidden is still accepted (hand over the origin, or a clean capture)', () => {
+  const clean = rig(D5); let last;
+  for (let i = 0; i < 8; i++) last = clean.pic({ e4: 'empty', d5: 'white' });
+  assert.equal(last.lastMove.san, 'exd5');
+  const origin = rig(D5); origin.pic({ e4: 'unknown' });
+  for (let i = 0; i < 8; i++) last = origin.pic({ e4: 'empty', d5: 'white' });
+  assert.equal(last.lastMove.san, 'exd5');
+});
+for (const inTransitTolerance of [false, true]) {
+  test(`R7b T1: the swap rule applies when the promotion question is asked (mutant M1g, transit ${inTransitTolerance})`, () => {
+    // b1 (knight) under a hand while the pawn promotes; knight and c1 bishop may have traded inside one gap.
+    const r = rig(PROMO6, { inTransitTolerance });
+    const promo = { a7: 'empty', a8: 'white' };
+    const out = [r.pic({ ...promo, b1: 'unknown' })];
+    for (let k = 0; k < QUESTION + 1; k++) out.push(r.pic(promo));
+    assert.ok(out.every(x => !x.pendingQuestion), 'no question is asked');
+    assert.equal(r.tracker.snapshot().reason, 'pieces-may-have-swapped');
+  });
+  test(`R7b T1: the swap rule applies while verifying after a review and after a promotion answer (mutant M1h, transit ${inTransitTolerance})`, () => {
+    for (const sq of ['a8', 'c1', 'e2']) {
+      const { send } = setup(START, { inTransitTolerance });
+      const out = [send({ overrides: unknownAt(sq) })]; for (let i = 0; i < 4; i++) out.push(send());
+      assert.ok(out.every(x => !x.trackingReady), `review, ${sq} hidden`);
+      assert.equal(out.at(-1).reason, 'pieces-may-have-swapped');
+    }
+    const r = rig(PROMO6, { inTransitTolerance }); const promo = { a7: 'empty', a8: 'white' };
+    let q; for (let k = 0; k < QUESTION && !q; k++) q = r.pic(promo).pendingQuestion;
+    assert.equal(r.tracker.answerPromotion({ session: SESSION, questionId: q.questionId, piece: 'q', atMs: r.now() }).accepted, true);
+    const out = [r.pic({ ...promo, b1: 'unknown' })]; for (let i = 0; i < 4; i++) out.push(r.pic(promo));
+    assert.ok(out.every(x => !x.trackingReady), 'after the answer, b1 hidden');
+    assert.equal(out.at(-1).reason, 'pieces-may-have-swapped');
+  });
+}
+test('R7b T1 (cost): the tick gap is measured from the last picture received, not the last usable one (mutant M2f)', () => {
+  const r = rig(START);
+  r.pic({ a5: 'unknown' }); // unusable, but the board was watched
+  const reply = guard(r.tracker.tick(r.now() + 200)); // 350 ms after the last usable picture, 200 after the last picture
+  assert.notEqual(reply.reason, 'picture-gap'); assert.equal(reply.status, 'confirming-change');
+});
+test('R7b D3: a repeated image that shows a changed board revokes while ready (round 7 answered "ready, ignored")', () => {
+  const r = rig(START); const s = r.seq(), t = r.now();
+  assert.equal(r.raw({}, s + 1, t + 150, 77).trackingReady, true);
+  const replay = r.raw({ e2: 'empty', e4: 'white' }, s + 2, t + 300, 77);
+  assert.equal(replay.reason, 'replayed-picture-changed'); assert.equal(replay.trackingReady, false);
 });

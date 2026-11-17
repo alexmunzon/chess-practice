@@ -1,8 +1,11 @@
 # Chess Companion: handoff for the next Fable orchestrator
 
-Written November 16, 2026, about 05:45 Madrid and last updated about 11:50, at the end of an
-overnight session. Last commit `46ce560` on `main` (6 commits, no remote); everything
-since is uncommitted. You are a Fable session that plans, assigns, integrates and reviews; Opus
+Written November 16, 2026, about 05:45 Madrid; last updated November 17, 2026, about 08:20, after an
+overnight session (see "Session 2026-11-17" below). UPDATE 2026-11-17 about 11:40: Alex said "Yes, commit";
+everything up to here is committed as the 2026-11-17 checkpoint (`git log -1`), NOT pushed. Where sections
+below say "uncommitted", read "committed 2026-11-17, not pushed". Last commit `e482729` on `main`, pushed to the PRIVATE GitHub repo
+`alexmunzon/chess-practice` (remote `origin`, created 2026-11-16 on Alex's words; every further push
+needs his words again). Everything in the "Afternoon session" section below is uncommitted. You are a Fable session that plans, assigns, integrates and reviews; Opus
 workers do the focused build work. Read this file first, then `CLAUDE.md` and `AGENTS.md` (binding
 rules). The paste-in prompt for a new session is `NEXT-SESSION-PROMPT.md`.
 
@@ -27,10 +30,10 @@ without showing the check. He wants the orchestrator to keep workers busy withou
 
 | What | Where |
 | --- | --- |
-| Project (git, `main`, no remote) | `/Users/alexmunzon/chess-practice` |
+| Project (git, `main`, remote `origin` = private GitHub repo) | `/Users/alexmunzon/chess-practice` |
 | Original Codex checkout, untouched backup | `/Users/alexmunzon/Documents/Codex/2026-10-30/task-3/chess-practice` |
 | Build outputs and evidence (31.5 GB, outside the repo) | `/Users/alexmunzon/chess-builds/` |
-| Latest phone evidence (25/25) | `/Users/alexmunzon/chess-builds/special-replay-2026-11-15/phone-run1/` |
+| Latest phone evidence (33 of 33, 2026-11-16 18:14) | `/Users/alexmunzon/chess-builds/tracker-wiring-2026-11-16/phone-run1/` |
 | Unsigned device builds now on the phone | `/Users/alexmunzon/chess-builds/special-replay-2026-11-15/device-normal` and `device-selftest` |
 | Provisioning profile and entitlements (no private key) | `/Users/alexmunzon/chess-builds/iphone-2026-11-15/signing/` |
 | Scene sets and pipeline evidence | `/Users/alexmunzon/chess-builds/pipeline-2026-11-15/` (`scenes`, `scenes-v2`, `scenes-stress`, `pipeline`, `classifier-v3`, `misread`) |
@@ -93,14 +96,76 @@ Decisions already made (do not reopen without new evidence):
 
 ## In flight at handoff (uncommitted; verify before relying on any of it)
 
-| Worker task | Files | Where its state is |
-| --- | --- | --- |
-| Nothing was running when this was written (about 11:50) | | |
-| Docs: `docs/PLAN.md` and `docs/VERIFICATION.md` were refreshed 2026-11-16 about 08:00 by a worker from this file; their v4 lines were updated by the orchestrator at about 11:50 to v4.3 and the spent reserved set | those two files | this file |
+Nothing was running when this was written (about 23:15). The Mac ran on battery and slept during the evening; keep it on its charger for long runs.
 
-Finished this session and uncommitted: engine wiring (reviewed twice, phone-proven), the library
-default reader, tracker rounds 5 and 6, the frame-age harness (new files only), the evidence
-inventory (`/Users/alexmunzon/chess-builds/session-review-2026-11-16/evidence-inventory.md`).
+## Afternoon session 2026-11-16 (all uncommitted, all checks re-run by the orchestrator)
+
+`scripts/check-all.sh` 8 of 8 suites at 17:48 (npm 379 tests, 371 pass, 0 fail, 8 skipped); it now
+also runs `tests/piece_classifier_v1.py` (9 suites; 11 of 11 on its own).
+
+| Piece | State | Evidence |
+| --- | --- | --- |
+| Tracker round 7/7b (`src/core/occupancy-tracker.js`, sha `04400009…770f`, 97 tests) | Either-colour rule (reviewer's R1), capture-square rule, gap rule in tick/snapshot, replayed-picture revoke. Reviewed (sixth review); the orchestrator re-ran the reviewer's attacks: hidden-square swap 0 of 144, spare on hidden square 0 of 24, opponent piece 0 of 12, captured piece 0 of 12; 18 of 18 mutants caught (worker-reported). Cost: hand-over-board row 50.6 -> 61.8 re-reviews per 100. | `tracker-round7-2026-11-16/`, `tracker-round7b-2026-11-16/`, `review-occupancy-tracker-round7-2026-11-16/` |
+| Tracker holes that STAY open (documented) | The moving piece itself swapped or substituted (5 of 5); an exchange completed between two consecutive pictures with nothing hidden (34 of 34); castling can end with king and rook interchanged (2 of 5); a bare `snapshot()` without a time stays ready. Only piece identification closes the first three. | same |
+| Tracker wired into the app, OFF by default | Launch argument `--occupancy-tracker-on` (`TrackerSetting.swift`); four request kinds in their own pending slot; any failed tracker request revokes; stop is never refused; page gate independent. Reviewed twice; the second review's one finding (unclassifiable command did not revoke) was fixed by the orchestrator in `NativeEngineRuntime.submit`, and the reviewer's harness then held 13 of 13. No picture source exists, so only scripted readings exercise it. `answerPromotion` is not wired (a promotion revokes). | `tracker-wiring-2026-11-16/` (round2/, phone2/, phone-run1/), `review-tracker-wiring-2026-11-16/`, `review-tracker-wiring-round2-2026-11-16/` |
+| Phone (real iPhone) | Self-test 33 of 33 at 18:14 (30 old + 3 tracker checks), 1 of 1 run. Normal build `phone2/device-normal` (unsigned sha `ed426961…`) restored on the phone, tracker off. | `tracker-wiring-2026-11-16/phone-run1/` |
+| Simulator A/B on a calm host | Engine deadline misses 5 of 100 (changed) vs 15 of 100 (previous commit), order alternated, 4 runs each: the change did not slow the engine; earlier imbalance was host load (worker-reported). | `tracker-wiring-2026-11-16/round2/ab-table.txt` |
+| Reader start backup (`START_FALLBACK_CLASSIFIER`, `--start-fallback v4`) | Built, OFF. v3.1 first, v4.3 only when v3.1 fits no orientation; the accepting reader reads the rest of the game; a self-check re-reads the start picture (all 64 squares must match). stressdev starts 27 -> 30 of 36, two-picture wrong moves 0 on 5 splits, fallback off identical to committed code (worker-reported; pipeline tests 40 of 40 re-run by the orchestrator). | `reader-fallback-2026-11-16/` |
+| Reader v4.3 review | Verdict NO for the backup as first built: its start check accepted 66 of 107 not-the-start pictures in the flat style (orchestrator re-ran: 66 of 107). With the self-check: 11 of 107 (all an extra piece under an 80-95% layer in exactly the board colour). 9 of 24 removed rules are caught by no test. Later-picture reading held up. | `review-reader-v43-2026-11-16/` |
+| Piece reader prototype (`scripts/recognition/piece_classifier_v1.py`, sha `e5c31e2ef64f…`, 11 tests, `docs/PIECE_CLASSIFIER.md`) | Learns piece shapes from the reviewed start picture; names a piece only when the best match is 2x the second. Builder: dev2 25,619 of 28,257 correct, 0 wrong; stressdev 40,245 of 42,081, 0 wrong; swaps and substitutions none missed in 7,218 each. Review (counts reproduced): usable as a guard that can only WITHHOLD advice, not as confirmation. Confident-wrong found: mid-game start with reduced material 12 of 5,760; arrow or glare in the start picture 44 in 6 of 12 games; a kind never shown 81 of 6,689; mid-move pictures 5; heavy blur/lens 44 of 25,344. Not registered in the pipeline. | `piece-classifier-2026-11-16/`, `review-piece-reader-2026-11-16/` |
+
+## Session 2026-11-17 (01:00-08:20 Madrid; all uncommitted; details in the matching backlog items)
+
+Full check at 07:15, orchestrator: `scripts/check-all.sh` 11 of 11 suites; `npm test` 397 tests, 389 pass,
+0 fail, 8 skipped. After that only `piece_guard.py`, the frame-age harness and their tests and docs changed (guard 32 of 32, frame-age 8 of 8, orchestrator re-ran; final full check: see orchestrator-state.json).
+
+| Work | State | Backlog item |
+| --- | --- | --- |
+| Engine wiring leftovers | done, reviewed, conditions closed; guard checks 21 of 21 | 6 |
+| Frame-age harness round 2 | done, NOT independently reviewed | 7 |
+| Test hygiene | done | 8 |
+| Corner finder round 2 | selectable, default unchanged; waits on Alex | 2 |
+| Reader v4 tests | done; new known-wrong square on flat boards (expected-failure test) | 12 |
+| v3.1 start self-check | built OFF; fixes little (55 -> 49 of 107) | 11 |
+| Promotion answer for the tracker | wired OFF, reviewed twice, conditions closed | 5 |
+| Piece reader v2 | reviewed, hardened (`07632cb07154…`) | 10 |
+| Piece guard `piece_guard.py` | seven build rounds, six independent reviews (round 3 REJECTED; rounds 4, 5 and 6 "accept with conditions"); round 7 (`17cf71610139…`, 32 tests) closes the sixth review's one condition and has NOT had its own review; NOT connected | 10 |
+
+Piece guard as it stands (round 5): `check_after_move(image, corners, believed_before, believed_after)`
+accepts only single-move shapes (one piece along its line, under-promotion, en passant); withholds on
+everything else, on any king or queen move, castling and queen promotion; remembers the last accepted
+position; `rebaseline_after_human_review(...)` is the only way to reset it and MUST follow a person's review
+(an automatic re-baseline defeats the guard: it cannot see kings, queens or pieces invented on empty
+squares; pinned by a test). Outcomes are read with `out.must_withhold()`; an outcome expires when any
+later call starts; calls on one guard are serialised by a lock. Fourth review (accept with conditions,
+`review-piece-guard-round4-2026-11-17/`): real moves refused for shape 0 of 6,959; near-miss non-moves
+accepted 0 of 1,481,235; attacks with pictures 0 of 79 and 0 of 26; baseline attacks 0 of 20. Legal-play
+cost, 8 games, 320 moves, simulated pictures (reviewer-measured, builder re-ran after round 5, orchestrator
+read the log): withheld ordinary 0 of 84, pawn moves 0 of 105, captures 0 of 71, en passant 0 of 6,
+under-promotion 0 of 4; king 21 of 21, queen 20 of 20, castling 7 of 7, queen promotion 2 of 2 (50 of 320).
+The first picture after every move withholds by design (the reader's mid-move rule); acceptance comes on
+the second picture. EARLIER COST FIGURES (123 "honest moves") were measured on mostly non-legal random
+changes and are superseded by this table. Orchestrator re-ran after round 5: guard 27 of 27, reader 30 of
+30, v1 11 of 11, the reviewer's thread case now withholds. Agent-reported: reviewer's 26 mutants 23 caught,
+survivors k07, k14, k26 (the reviewer's own "cannot change behaviour" list). Fifth review (round 5, accept with
+conditions, nothing dangerous; `review-piece-guard-round5-2026-11-17/`): regression 0 dangerous; lock and
+sequence 0 of 26; gaps: a re-baseline succeeded on a picture that shows nothing (degenerate corners), a
+same-thread re-entrant call deadlocked, 12 of 17 fresh mutants caught. Round 6 (fresh builder,
+`piece-guard-2026-11-17/round6/`): a re-baseline needs the reader to name at least 0.75 of the nameable pieces
+(all 50 honest re-baselines named 100%, clean renders only); a re-entrant call withholds; docstrings state
+when the baseline can move while the caller reads withhold. Orchestrator re-ran after round 6: guard 30 of 30,
+reader 30 of 30, v1 11 of 11, the reviewer's bad-corners attack now withholds, cost log unchanged (50 of 320,
+re-baselines 50 of 50). Agent-reported: 15 of 17 mutants (m14, m15 near-equivalent). Sixth review (round 6, accept with one condition,
+`review-piece-guard-round6-2026-11-17/`): a re-baseline claiming position X on a slightly different picture Y
+was accepted 5 of 92 (the changed square reads "unconfirmed", not an objection); everything else refused;
+honest re-baselines 12 of 12 midgame and 5 of 7 endgame under blur/JPEG/noise/brightness/theme/2 px jitter
+(the 2 failures are king-and-queen-only positions, which can never re-baseline), 11 of 12 and 3 of 7 at 5 px
+jitter; test setups judged not weakened. Round 7: a re-baseline withholds when any square is "unconfirmed".
+Orchestrator re-ran: guard 32 of 32, reader 30 of 30, v1 11 of 11, the reviewer's c_follow attack now
+refused. Agent-reported: the sixth reviewer's 92 attacks 0 dangerous, costs unchanged, 16 of 17 mutants.
+Next step if Alex wants the guard used: a fresh review of round 7, then wiring beside the tracker as a
+separate reviewed step. Known limits to carry forward: never sees kings or queens; a re-baseline is the
+caller's claim of a human review; first picture after a move always withholds; clean rendered pictures only.
 
 ## Backlog, in priority order (launch whatever has free files and ready inputs)
 
@@ -111,11 +176,24 @@ inventory (`/Users/alexmunzon/chess-builds/session-review-2026-11-16/evidence-in
    review; open item from its worker: the two-colour limit learned from the start picture can also
    be loosened by glare on a start piece (no wrong square shown).
    `stressheld` was scored ONCE on 2026-11-16 about 11:17-11:44 by the orchestrator and is now SPENT (logs `pipeline-2026-11-15/pipeline/final-stressheld-v3.log` and `-v4.log`; frozen: pipeline `49d7ce83…`, scorer `c7d4fdec…`, original corner finder `b5774046…`, readers v3.1 `c634a76d…` and v4.3 `de58ef04…`). 36 games, simulated images, self-aware mode. Two pictures must agree: 0 wrong moves accepted with v3.1 and 0 with v4.3. One picture: 2 wrong moves each, both on the mid-move game (a pawn drawn half way on f3/d3), blocked by the two-picture rule. Starts accepted: v3.1 28/36, v4.3 30/36 (flat style 0/3 -> 3/3; coordinates 3/3 -> 2/3; unfamiliar style 0/3 and lens distortion 1/3 for both). Re-reviews per 100 positions at two-picture agreement: v3.1 20.9, v4.3 26.8. Confident wrong squares against the answer key: v3.1 5 of 66,624, v4.3 4 of 71,424 (the listed ones are mid-move pictures; not checked square by square). Time per picture on the Mac: 407 ms with v3.1, 456 ms with v4.3.
+   DECIDED 2026-11-16 (Alex): v3.1 stays the default; v4.3 only as a start backup. The backup is built
+   and OFF (see the afternoon table); the orchestrator recommends leaving it off (11 of 107
+   not-the-start pictures still accepted for 3 extra starts). Older note:
    Next: decide the default. v4.3 reads flat pieces and highlights but leaves unknown about 2,800
    (dev) and 6,200 (dev2) squares that v3.1 reads (agent-reported). Orchestrator's recommendation:
    keep v3.1 as the default and try v4.3 only when v3.1 refuses the start picture; that fallback is
    not built. Any further v4 change needs NEW unseen pictures, because no held-out set is left.
-2. Corner finder: round 2 (`corner-finder-2026-11-16/round2/bin-new2`, sha256 `3292bcae…`) was
+2. Corner finder UPDATE 2026-11-17 (uncommitted, not separately reviewed): round 2 is now SELECTABLE
+   (`set_finder`, `--corner-finder round2`; binary copied to `pipeline-2026-11-15/pipeline/bin/screen-board-detect-round2`,
+   sha `3292bcae…`); DEFAULT STILL THE ORIGINAL (`b5774046…`), default output proven identical on smoke2
+   (13 of 13 result files). Agent-reported, simulated pictures, reader v3.1, two-picture rule, both finders
+   identical on every measure: wrong moves 0 of 14 / 0 of 421 / 0 of 337 / 0 of 338 (smoke2/dev/dev2/stressdev),
+   starts 2 of 2, 12 of 12, 12 of 12, 27 of 36; corners identical within 0.5 px; round 2 refuses 3 lens start
+   pictures the reader refused anyway; detect stage 15-58 ms slower per picture (loaded Mac). Pipeline tests
+   43 of 43 (orchestrator re-ran). Evidence `corner-swap-2026-11-17/`. Open for Alex: make round 2 the default
+   (orchestrator: yes; it is still not a guard against lens distortion). The worker could not trace the
+   "277 of 1,006" figure below to a log; the doc cites 105 of the same 422 pictures instead. Earlier record:
+   Corner finder: round 2 (`corner-finder-2026-11-16/round2/bin-new2`, sha256 `3292bcae…`) was
    re-reviewed: it MAY replace the pipeline's finder as a strict improvement (ordinary pictures
    0 of 100 newly refused, corners identical; first review's 8 attack sets 0 of 653 wrong), but it
    is not a guard against lens distortion: 24 of 422 two-term-lens pictures accepted with corners
@@ -129,28 +207,134 @@ inventory (`/Users/alexmunzon/chess-builds/session-review-2026-11-16/evidence-in
    one-time calibration of the real glasses camera eventually.
 4. Motion blur belongs to the square reader: with exact corners it still reads blurred pieces as
    empty (12 px blur).
-5. Occupancy tracker: round 6 WAS reviewed (fifth review, `review-occupancy-tracker-round5-2026-11-16/`,
-   orchestrator re-ran its proofs). Nothing else is broken, but the hole is larger than the doc
-   says: (a) one-gap swap, wrong position trusted 72 of 144; (b) a hand covers one square and puts
-   down a spare or captured piece of the same colour, trusted 22 of 24, with NO time limit;
-   (c) the moving piece itself is the swap partner or is substituted, 5 of 5, not closable by any
-   rule. Ready-made next fix round, measured by the reviewer: rule "R2" (a hidden square holding a
-   piece of the side that moved, or of either side when nothing moved, revokes) closes (a) and (b)
-   at a cost of 50.6 -> 57.8 re-reviews per 100 positions in the hand-over-board row; apply the
-   250 ms gap rule in `tick`/`snapshot` too (after 900 ms without pictures it still says ready);
-   ask for 6 pictures per second, not 4 (1 ms of jitter revokes at exactly 4); say in the doc that
-   (b) has no time limit; note that king-first castling will usually need a re-review. Not started:
-   whether to keep investing is Alex's decision (see below). Wiring also needs the doc's
-   requirements 3, 7, 10, 11, 12 (time source, in-order undropped pictures).
-6. Engine wiring leftovers (all low severity, from the follow-up review): `RuntimeGuardChecks.swift`
-   tests the rule, not the real `submit` (it passes with the guard removed); `cancelPrewarm` is
-   refused while another request is pending; one self-test case accepts a timeout as a pass;
-   `run-all.sh` does not run `RuntimeGuardChecks`. Open question: the slow-search tier seen in the
-   Simulator; collect more phone runs before deciding on a warm-up for every engine start.
-7. Frame age for glasses: method 1 (on-screen code) is the candidate; its 3 misses came from a
-   harness timing error larger than the 0.05 s margin. Needs real glasses to mean anything.
-8. Test hygiene noticed by a worker: two tests in `tests/screen_pipeline.py` leave reader v2
-   selected for the tests after them. Alex has not asked for a change.
+5. UPDATE 2026-11-17 (uncommitted): `answerPromotion` is WIRED as a fifth tracker request
+   `trackerAnswerPromotion` behind the same OFF-by-default setting (runtime.js handler; kind added to
+   `occupancyKinds` in Swift). Orchestrator re-ran: npm test 386 tests, 378 pass, 0 fail, 8 skipped;
+   tracker-wiring 22 of 22; run-all.sh 5 of 5 suites, guard checks 20 of 20; tracker file sha unchanged.
+   Agent-reported: 7 of 7 mutants caught; self-test check compiled, never run. REVIEWED TWICE 2026-11-17, both "accept with conditions", all
+   conditions closed (rounds 2 and 3 in `promotion-wiring-2026-11-17/`; reviews `review-promotion-wiring-2026-11-17/`
+   and `review-promotion-wiring-round2-2026-11-17/`). First review: 3 of 38 page attacks dangerous (a second,
+   different answer was ignored and advice stayed on; old answer matched after a reload). Now: a different
+   piece for an answered question revokes (`ANSWER_CONFLICT`); the tracker instance id carries 128 random bits
+   (requirement 6 closed); a missing, throwing or all-zero random source means no tracker (`RANDOM_UNAVAILABLE`);
+   the answer memory is never evicted and revokes at 1,024. Orchestrator re-ran after the last round: both
+   reviewers' attack scripts 0 of 38 and 0 of 29 dangerous; npm test 397 tests, 389 pass, 0 fail, 8 skipped;
+   tracker-wiring 33 of 33; run-all.sh 5 of 5, guard checks 21 of 21. Agent-reported: reviewer mutants 11 of 12
+   (the survivor is indistinguishable). Simulator self-test of the build BEFORE the last two fix rounds
+   (page code only changed since): 32 of 34 and 34 of 34, all four occupancy checks passed in both, failures are
+   the slow engine search (`sim-selftest-2026-11-17/`; the second run was clean at HIGHER load, so load alone
+   does not explain the slow search). Not run on the phone.
+   Earlier record: Occupancy tracker: round 7b is reviewed and wired in OFF by default (afternoon table). Left:
+   wire `answerPromotion`; a test in the repo's own check for the Swift gates (today only macOS
+   harnesses outside the repo catch their removal: `tracker-wiring-2026-11-16/round2/swift/TrackerGateChecks.swift`,
+   whose N4 check is flaky); `RuntimeGuardChecks.swift` label still says 16 assets (now 18); a far-future
+   `trackerStart` time disables the tracker until the runtime is recreated (fails closed, documented).
+   Whoever connects a picture source must guarantee the doc's Wiring requirements (one monotonic clock,
+   in-order pictures, covered squares read unknown, 6 pictures per second, poll every 100 ms, stop on
+   every interruption, any tracker error means trust is gone).
+6. Engine wiring leftovers: DONE 2026-11-17 (uncommitted), reviewed (accept with conditions, all three
+   conditions then closed by the builder). `RuntimeGuardChecks.swift` now drives the real `submit` in a
+   headless macOS web view: 15 of 15 (orchestrator re-ran; `run-all.sh` "5 of 5 native suites passed").
+   Mutants, agent-reported: 8 of 8 busy-guard and 4 of 4 occupancy-slot copies caught. `run-all.sh`
+   (`special-replay-2026-11-15/mocks/`, outside the repo; old copy in `engine-leftovers-2026-11-17/run-all.sh.before`)
+   now runs the guard checks. `cancelPrewarm` stays refused while a request is pending (pinned by checks);
+   with a Replay or position/move request pending a ready spare engine survives up to about 70 s, holds no
+   position, restores no advice (docs corrected). Self-test case no longer counts a timeout as a pass;
+   Simulator run 29 of 33 at load 10-15 (1 of 1 run, agent-reported; the changed case passed, the 4 failures
+   are engine deadline misses seen before under load): RE-RUN ON A CALM HOST, and no phone run yet. The
+   Simulator holds an ad hoc signed self-test build. Evidence `engine-leftovers-2026-11-17/` (round2/),
+   `review-engine-leftovers-2026-11-17/`. Still open: the slow-search question.
+7. REVIEWED 2026-11-17 (`review-frame-age-2026-11-17/`): "supported with caveats". The 3 misses are a rig
+   artifact (late display log plus one out-of-order mock frame at every code change; about 85% confidence; a
+   reader misread is not ruled out). BUT the "0 misses" counts below (162 of 162, 0 of 7,821, and the
+   reviewer's own 0 of 10,004) HOLD BY CONSTRUCTION and are NOT evidence about the method; fault injection
+   detected 8 of 13, mutants 16 of 19; the harness never held a picture longer than 10 s and left post-loop
+   pictures unscored; the doc overclaims. The guarantee needs eight assumptions (log never late, one clock, no
+   second source showing the same code, correct stream assignment, no misread to a valid code, exposure within
+   the margin, board and code in one exposure, first display kept). FOLLOW-UP DONE (round 3, `frame-age-round2-2026-11-17/round3/`;
+   agent-reported except the tests): the harness can now fail and found two real weaknesses of method 1:
+   a second screen replaying the PREVIOUS stream gets old pictures accepted 2,033 of 8,712 (codes repeat across
+   sessions: the code needs a session number), and a reader that returns the next code gets 325 of 1,850
+   accepted. Controls, long holds (30-60 s), post-loop and same-session replays: 0 accepted. Faults 12 of 13,
+   mutants 19 of 19; doc rewritten to claim only this. Tests 8 of 8 and mock video 21 of 21 (orchestrator
+   re-ran). Next for method 1: a per-session value in the code and an error-detecting code; then real glasses.
+   Earlier record: Frame age for glasses, round 2 DONE 2026-11-17 (uncommitted; reviewed later, see above): the 3 misses
+   were harness error (display log 210-231 ms late against a 50 ms margin). New Mac-only harness on a
+   frame-count clock, `native/MockGlassesProbe/frame_age_mac_sim.py` (error at most 2.5 ms);
+   `analyze_frame_age.py` refuses to score when the log error exceeds the margin. Agent-reported, simulated
+   video on the Mac: old picture accepted 0 of 7,821; fresh refused 57 of 45,122; delayed-but-fresh accepted
+   7,230 of 11,021 (cost). Tests 6 of 6 and mock video 21 of 21 (orchestrator re-ran). `FrameAgeHarness.swift`
+   (Simulator) still has the late log. Needs real glasses to mean anything. Evidence `frame-age-round2-2026-11-17/`.
+8. Test hygiene: DONE 2026-11-17 (uncommitted). Two tests left reader v2 selected, so 34 of 40 pipeline
+   tests ran on v2; a `setUp` cleanup now resets the reader and the start fallback. 40 of 40, leaks 0 in
+   both orders (orchestrator re-ran). Evidence `test-hygiene-2026-11-17/`.
+10. Piece reader v2 REVIEWED 2026-11-17: "yes with conditions" as a guard that can only WITHHOLD advice
+   (evidence `review-piece-reader-v2-2026-11-17/`, copied there by the orchestrator; no REVIEW.md, the
+   reviewer's reply is the report). Tests 22 of 22. Orchestrator reproduced the two worst findings.
+   Dangerous if "consistent" were ever treated as confirmation: (1) a start reviewed wrongly in a
+   self-consistent way (knight/bishop or rook/knight swapped on both sides, or board turned 180 degrees) is
+   accepted, 3 of 23 doctored starts, 37/78/36 wrong names, and compare() then calls 8 of 8 wrong squares
+   "consistent" (re-run: 78 wrong, 8 of 8); (2) a piece paused mid-slide is named, 43 wrong of 43,885 named
+   squares (1 of 2 wrong squares "consistent" when the tracker makes the same mistake). No danger found:
+   thin-evidence 0 of 76, compare() 0 of 3,104 wrong beliefs called consistent, picture conditions 0 of 245,
+   malformed input 0 of 43 wrong (but 12 of 43 CRASH instead of "cannot tell"; a partial position can give an
+   overall "consistent"). Mutants 10 of 20 caught (survivors include compare's overall verdict "any" for "all"
+   and 4 start-cleanliness limits). Cost on the reviewer's clean renders: starts refused 0 of 60; unsure 12 of
+   5,061 non-king/queen squares; kings/queens unsure 847 of 847. Not verified: real footage, dev2, stressdev.
+   CONDITIONS: act only on "objection", treat "consistent" as no information; always pass the full believed
+   position; a crash withholds advice; correct start review incl. board direction; tests for the survivors;
+   consecutive real pictures. Earlier record follows.
+   AFTER THE REVIEW, 2026-11-17 (uncommitted): the reader was hardened (bad input answers cannot-tell, no
+   crash; a turned board reads unsure; a partial position is never "consistent"; an objection is kept even
+   with a malformed entry elsewhere), sha now `07632cb07154…`, 30 tests. New withhold-only guard
+   `scripts/recognition/piece_guard.py` (sha `832fd74fd94b…`, `tests/piece_guard.py` 15 tests, in check-all):
+   two outcomes only, "withhold" and "no objection" (= no information); withholds on objection, any error,
+   refused/missing start, impossible or partial believed position. Guard reviewed once ("accept with
+   conditions": equality trap, impossible positions passing, misuse cases; evidence
+   `review-piece-guard-2026-11-17/`), builder closed all; orchestrator re-ran tests 30/15/11 and the
+   reviewer's follow-up attack (now withholds; `== WITHHOLD` true). Agent-reported: guard mutants 23 of 24
+   (survivor unreachable), reader mutants 20 of 20, reviewer's guard attacks 0 dangerous of 101,
+   atk_f 0 crashes of 43, atk_d 0 of 3,104, smoke2 unsure 181 of 1,344 unchanged. The round-2 fixes have a
+   re-review in flight/after them: see the state file. COST, for Alex to decide (reviewer-measured, 123 honest
+   moves): strict default withholds 123 of 123 (the reader never says "empty"); `check_move(arrived, vacated)`
+   20 of 123 (all king/queen moves); lenient 0 of 123. Orchestrator recommends `check_move`. NOT CONNECTED to
+   the tracker or the app. Evidence `piece-guard-2026-11-17/` (round2/).
+   Piece reader v2 was BUILT (2026-11-16 evening, uncommitted; at that time not reviewed: launch a `code-reviewer`
+   before quoting its numbers as verified or wiring it): `scripts/recognition/piece_classifier_v2.py`
+   (sha `c19efcf5…35b61`), `tests/piece_classifier_v2.py` (22 of 22, re-run by the orchestrator), v1 untouched,
+   evidence `piece-classifier-v2-2026-11-16/`. Worker-reported: confident-wrong 0 on every reviewer attack
+   family (v1: 214) and on smoke2/dev2/stressdev; unsure rises to about 28% of occupied squares on dev2 and
+   stressdev (v1: 9% and 4%); swaps missed 0 (dev2: 2,616 noticed, 417 cannot-tell of 3,033); false alarms 0;
+   clean starts wrongly refused 3 of 64, 6 of 84, 17 of 128; names nothing on 8 of 12 low-contrast board
+   looks; 12 of 14 mutants caught. Design question for the orchestrator: a kind learned from one start
+   square is never named, so kings and queens are NEVER named in a standard game (a king-queen swap is
+   "cannot tell", not an objection); decide whether "cannot tell" on a square the tracker marked disturbed
+   should itself withhold advice. Then a guard next to the tracker that can only revoke. Original brief:
+   Piece reader round 2 (was not started: weekly usage was at 63-66% on 2026-11-16, limit rule 70%):
+   refuse or flag unclean start pictures (reviewer's edge-ring prototype caught 96 of 96 dirty starts
+   but refused 20 of 64 clean ones, so it needs design); refuse to name kinds learned from fewer than
+   about two squares; treat agreement as "no objection", never proof; tests for the fit and gain
+   gates (6 of 18 mutants caught today); score mid-move pictures. Then a guard next to the tracker
+   that can only revoke. This is what closes the tracker's remaining holes.
+11. MEASURED 2026-11-17 (uncommitted): a self-check option for v3.1 starts is built and OFF
+   (`START_SELF_CHECK`, scorer flag). It fixes little: not-the-start classic pictures accepted 55 -> 49 of 107
+   (reproduced 55 first); good starts newly refused 0 on smoke2/dev/dev2/stressdev; wrong moves 0 -> 0; about
+   120 ms per start (agent-reported, simulated pictures). The 49 left are pictures v3.1's own reading takes
+   for the start (28 extra piece under an 80-95% layer, 11 piece-coloured shape on an empty square, 10 a
+   piece drawn 6-16 px off). Recommendation: leave it off; a real fix needs a better reader; the person's
+   start review covers it today. Pipeline tests 48 of 48 (orchestrator re-ran). Evidence
+   `start-selfcheck-v31-2026-11-17/`. Earlier record: Default reader v3.1 start check: accepted 55 of 107 not-the-start pictures in the classic style
+   (v4.3 review, `attack_start.py classic classic A`). The person's review of the start position
+   covers it today. Candidate: the same self-check on v3.1 starts, measured for cost first.
+12. Reader v4 tests DONE 2026-11-17 (uncommitted): 8 new tests (class `UnprotectedRuleCases`), mutation
+   23 of 24 caught (agent-reported; the survivor M16 is equivalent, `MASK_MIN_SQUARES` may be dead code).
+   64 tests, 63 pass + 1 expected failure (orchestrator re-ran), module sha unchanged `de58ef04…`.
+   NEW WRONG-SQUARE FINDING (agent-reported, expected-failure test
+   `test_fill_coloured_box_standing_on_an_empty_square_KNOWN_WRONG`): on flat-style boards an opaque box in a
+   piece colour standing where a piece's base would be on an empty square reads as a confident piece, 4 of 4
+   squares per colour; the size check cannot refuse it there, so the doc's "a large occluder is unknown" does
+   not hold on flat boards. v4.3 is only the OFF start backup; one more reason to leave it off. Evidence
+   `v4-tests-2026-11-17/`. Earlier record: 9 of 24 removed rules are caught by no test (`review-reader-v43-2026-11-16/logs/mutants.log`).
 9. Housekeeping: fold this session into `docs/PLAN.md` and `docs/VERIFICATION.md`; refresh the
    status page; real-WebKit test of the engine-host-died path; evidence retention (inventory done:
    31.5 GB, about 9 GB are candidates after Alex's OK; `pipeline-2026-11-15` is still read by
@@ -158,23 +342,31 @@ inventory (`/Users/alexmunzon/chess-builds/session-review-2026-11-16/evidence-in
 
 ## Decisions waiting on Alex
 
-- Occupancy tracker (five reviews, each found something): occupancy alone cannot tell which piece
-  is on a square, so piece substitution under a hand can never be fully ruled out. Choices:
-  (1) do one more fix round (rule R2 and the small fixes) and wire it behind a setting that is off
-  by default, for measuring only; (2) stop investing until a reader can identify pieces; (3) accept
-  the hole for honest solo practice and wire it in after the fix round. Orchestrator's
-  recommendation: 1.
+- NEW 2026-11-17: corner finder round 2 as the default (orchestrator: yes; identical on all development
+  splits, fewer distorted pictures accepted; not a lens guard).
+- NEW 2026-11-17: piece guard cost. Connected, it would need a human re-review after every king move, queen
+  move, castling and queen promotion (50 of 320 moves in 8 legal games). Accept that, or first design a
+  reader that can name kings and queens.
+- NEW 2026-11-17: commit (and separately push) everything since `e482729`.
+- NEW 2026-11-17: phone self-test of today's build (needs the phone unlocked; not run).
+- Slow engine search: on 2026-11-17 a Simulator run was clean (34 of 34) at HIGHER load than a run with two
+  slow-search failures (32 of 34), so load alone does not explain it.
+
+- Occupancy tracker: DECIDED 2026-11-16 (Alex): one more fix round, then wired in switched off. Done.
+  Open for him: whether to continue with the piece reader round 2 (backlog 10), which is what makes
+  the tracker worth switching on.
+- Reader start backup: built and off; switch it on or leave it (orchestrator: leave it off).
 - Piece-in-transit setting: stays OFF; with it ON a lifted piece costs 0 instead of 49 re-reviews
   per 100 positions, wrong acceptances equal in both settings after round 6.
 - Slow engine searches (Simulator only so far): accept an occasional "no recommendation" or add a
   warm-up for every engine start.
 - Try both Replay games by hand on the phone (the only missing human evidence).
 - Camera and real-glasses approval for the first real screen-board capture.
-- A private off-machine backup (needs a GitHub account and repo name from him, and a scrub of
-  `HANDOFF.md` and `docs/PHONE_INSTALLATION.md`, which contain his Apple ID email and team ID).
+- Off-machine backup: DONE 2026-11-16, private GitHub repo `alexmunzon/chess-practice` (the orchestrator
+  searched all pushed commits for his Apple ID email and team ID: 0 occurrences). Each push needs his words.
 - Whether to download the non-commercial ChessReD dataset (about 29 GB).
 - What to keep of the 31.5 GB of evidence (inventory file above).
-- Commit: nothing since `46ce560` is committed; commit only when he asks.
+- Commit: the afternoon session's work is uncommitted; commit and push only when he asks, each time.
 
 ## Boundaries (do not cross without Alex's own words)
 

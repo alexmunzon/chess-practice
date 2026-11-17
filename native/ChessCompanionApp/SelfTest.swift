@@ -367,6 +367,19 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
             await specialWork.value
             specialWatchdog.cancel()
         }
+        // Occupancy-tracker wiring checks (setting off as launched; on via the test switch), own watchdog.
+        if !finished && !Task.isCancelled {
+            let occupancyWork = Task { @MainActor in await self.runOccupancyChecks() }
+            let occupancyWatchdog = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.occupancyTimeoutSeconds))
+                guard !Task.isCancelled, !self.finished else { return }
+                occupancyWork.cancel()
+                self.log.record("selftest.occupancy.timeout")
+                self.finish(incomplete: true, reason: "occupancy tracker timeout of \(Self.occupancyTimeoutSeconds) s reached")
+            }
+            await occupancyWork.value
+            occupancyWatchdog.cancel()
+        }
         if !finished && !Task.isCancelled { searchBudgetCheck() }
         if !finished { finish(incomplete: Task.isCancelled, reason: nil) }
     }
@@ -751,7 +764,8 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 let analyzeText = String(data: try JSONSerialization.data(withJSONObject: analyzeCommand, options: [.sortedKeys]), encoding: .utf8)!
                 let held = Task { @MainActor () -> String in
                     do { _ = try await runtime.submit(commandJSON: analyzeText, timeoutMilliseconds: 30_000); return "reply" }
-                    catch NativeEngineRuntimeError.cancelled { return "cancelled" } catch { return "error: \(error)" }
+                    catch NativeEngineRuntimeError.cancelled { return "cancelled" }
+                    catch NativeEngineRuntimeError.timedOut { return "timed-out" } catch { return "error: \(error)" }
                 }
                 await pause(20)                              // the analysis is now the runtime's pending request
                 do { _ = try await runtime.submit(commandJSON: #"{"kind":"prewarm","requestId":"allowlist-prewarm-while-busy","schemaVersion":1}"#, timeoutMilliseconds: 5_000)
@@ -759,6 +773,10 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
                 catch NativeEngineRuntimeError.unavailable(let message) where message == "Runtime busy; prewarm skipped." { outcomes["prewarmWhileAnalysisPending"] = "refused-busy" }
                 catch { outcomes["prewarmWhileAnalysisPending"] = "error: \(error)" }
                 outcomes["pendingAnalysisOutcome"] = await held.value
+                // Only a real reply passes. A timeout is its own non-pass outcome (slow machine or a hang), never success.
+                if outcomes["pendingAnalysisOutcome"] == "timed-out" {
+                    d["pendingAnalysisTimedOut"] = "the held analysis did not reply within 30 s; counted as not passed (slow machine or engine hang)"
+                }
                 live = live && runtime.isReady
             } catch { outcomes["start"] = "error: \(error)" }
             runtime.close()
@@ -767,7 +785,7 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
         let pass = unchanged == false && extraAsset == true && missingPrewarm == true && live
             && outcomes["prewarm"] == "accepted" && outcomes["cancelPrewarm"] == "accepted"
             && ["unknownKind", "uciGo", "caseVariant", "prewarmWithReplayMode"].allSatisfy { outcomes[$0] == "refused-before-send" }
-            && outcomes["prewarmWhileAnalysisPending"] == "refused-busy" && outcomes["pendingAnalysisOutcome"] != "cancelled"
+            && outcomes["prewarmWhileAnalysisPending"] == "refused-busy" && outcomes["pendingAnalysisOutcome"] == "reply"
         record("runtime-allowlist-refuses-unknown-asset-and-kind", pass: pass, details: d)
     }
 
@@ -1254,6 +1272,199 @@ actor SelfTestRecognizerProbe: OfflineImageRecognizer {
         }
         // Leave the replay mode clean.
         r.leave()
+    }
+
+    // MARK: - Occupancy tracker wiring (docs/OCCUPANCY_TRACKER.md "Wiring"); SYNTHETIC scripted readings, no camera
+
+    static let occupancyTimeoutSeconds = 90
+    /// Readings from a FEN's piece placement: every square white / black / empty, confidence 1; `hidden` squares read unknown.
+    static func occupancySquares(_ fen: String, hidden: Set<String> = []) -> [String: Any] {
+        var out: [String: Any] = [:]
+        let files = Array("abcdefgh")
+        for (index, row) in fen.split(separator: " ")[0].split(separator: "/").enumerated() {
+            var file = 0
+            for ch in row {
+                if let n = ch.wholeNumberValue { for _ in 0..<n { out["\(files[file])\(8 - index)"] = ["label": "empty", "confidence": 1]; file += 1 } }
+                else { out["\(files[file])\(8 - index)"] = ["label": ch.isUppercase ? "white" : "black", "confidence": 1]; file += 1 }
+            }
+        }
+        for square in hidden { out[square] = ["label": "unknown", "confidence": 1] }
+        return out
+    }
+    /// Scripted feed: one reading every 100 ms of virtual capture time, consecutive sequence numbers, a distinct hash each.
+    @MainActor private final class ScriptedFeed {
+        let submit: @MainActor (String) async throws -> String; let session: [String: Any]; var sequence = 0; var time = 0; var requests = 0
+        init(runtime: NativeEngineRuntime, session: [String: Any], time: Int = 0) {
+            self.submit = { try await runtime.submit(commandJSON: $0, timeoutMilliseconds: 5_000) }; self.session = session; self.time = time
+        }
+        init(backend: LocalOfflineBackend, session: [String: Any]) { self.submit = { try await backend.submitRuntimeCommand($0) }; self.session = session }
+        @MainActor func send(_ kind: String, _ fields: [String: Any]) async throws -> [String: Any] {
+            requests += 1
+            var command = fields; command["schemaVersion"] = 1; command["kind"] = kind; command["requestId"] = "occupancy-\(kind)-\(requests)"
+            let text = String(data: try JSONSerialization.data(withJSONObject: command, options: [.sortedKeys]), encoding: .utf8)!
+            return (try JSONSerialization.jsonObject(with: Data(try await submit(text).utf8)) as? [String: Any]) ?? [:]
+        }
+        @MainActor func start(_ fen: String) async throws -> [String: Any] {
+            try await send("trackerStart", ["session": session, "fen": fen, "reviewed": ["pieces": true, "turn": true, "castling": true, "enPassant": true, "counters": true], "atMs": time])
+        }
+        @MainActor func read(_ fen: String, hidden: Set<String> = [], times: Int = 1) async throws -> [String: Any] {
+            var last: [String: Any] = [:]
+            for _ in 0..<times {
+                sequence += 1; time += 100
+                var identity = session; identity["sequence"] = sequence
+                identity["frameSha256"] = NativeSyntheticRecognizer.sha256(Data("\(session["sessionId"] ?? ""):\(session["epoch"] ?? ""):\(sequence)".utf8))
+                last = try await send("trackerIngest", ["reading": ["identity": identity, "capturedAtMs": time, "squares": SelfTestRunner.occupancySquares(fen, hidden: hidden)]])
+            }
+            return last
+        }
+        @MainActor func snapshot(after ms: Int) async throws -> [String: Any] { try await send("trackerSnapshot", ["atMs": time + ms]) }
+    }
+    private static func trackerSummary(_ reply: [String: Any]) -> [String: Any] {
+        let state = reply["state"] as? [String: Any] ?? [:]
+        return ["trackingReady": jsonValue(reply["trackingReady"]), "guidanceAllowed": jsonValue(reply["guidanceAllowed"]), "status": jsonValue(state["status"]),
+                "reason": jsonValue(state["reason"]), "fen": jsonValue(state["fen"]), "lastMove": jsonValue((state["lastMove"] as? [String: Any])?["san"])]
+    }
+
+    private func runOccupancyChecks() async {
+        log.record("selftest.occupancy.begin")
+        let startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        let afterE4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+        guard let resources = Self.studyResources, let directory = try? resources.runtimeDirectory() else {
+            for name in ["occupancy-tracker-off-refuses-every-request", "occupancy-tracker-on-honest-move-trusted", "occupancy-tracker-on-hidden-swap-revoked", "occupancy-tracker-on-honest-promotion-trusted"] {
+                record(name, pass: false, details: ["failure": "no runtime directory"])
+            }
+            return
+        }
+        // 1. The app's own backend (LocalOfflineBackend, exactly as the app builds it), setting as launched:
+        // every tracker request refused, the engine still answers.
+        do {
+            var d: [String: Any] = ["settingEnabled": TrackerSetting.enabled, "launchArgument": TrackerSetting.launchArgument]
+            var outcomes: [String: String] = [:], engineOK = false
+            if let backend = try? LocalOfflineBackend(resources: resources) {
+                d["backendRuntimeSettingEnabled"] = backend.occupancyTrackerEnabled
+                do {
+                    try await backend.start()
+                    let feed = ScriptedFeed(backend: backend, session: ["sessionId": "selftest-off", "epoch": 1])
+                    for kind in ["trackerStart", "trackerIngest", "trackerSnapshot", "trackerStop", "trackerAnswerPromotion"] {
+                        do { _ = try await feed.send(kind, kind == "trackerSnapshot" ? ["atMs": 0] : [:]); outcomes[kind] = "accepted" }
+                        catch NativeEngineRuntimeError.unavailable(let message) where message == NativeEngineRuntime.occupancyDisabledMessage { outcomes[kind] = "refused-disabled" }
+                        catch { outcomes[kind] = "error: \(error)" }
+                    }
+                    let position = try await feed.send("position", ["fen": startFEN])
+                    engineOK = ((position["position"] as? [String: Any])?["legalMoves"] as? [Any])?.count == 20
+                } catch { outcomes["start"] = "error: \(error)" }
+                backend.close()
+            }
+            d["outcomes"] = outcomes; d["engineAnsweredAfterRefusals"] = engineOK
+            let pass = !TrackerSetting.enabled && d["backendRuntimeSettingEnabled"] as? Bool == false && outcomes.count == 5 && outcomes.values.allSatisfy { $0 == "refused-disabled" } && engineOK
+            record("occupancy-tracker-off-refuses-every-request", pass: pass, details: d, label: "setting as launched (off unless --occupancy-tracker-on)")
+        }
+        if Task.isCancelled { return }
+        // 2 and 3. Test switch on (a runtime created with occupancyTracker: true; the app's own setting is untouched).
+        guard let runtime = try? NativeEngineRuntime(resourceDirectory: directory, occupancyTracker: true) else {
+            record("occupancy-tracker-on-honest-move-trusted", pass: false, details: ["failure": "runtime refused"])
+            record("occupancy-tracker-on-hidden-swap-revoked", pass: false, details: ["failure": "runtime refused"])
+            record("occupancy-tracker-on-honest-promotion-trusted", pass: false, details: ["failure": "runtime refused"]); return
+        }
+        defer { runtime.close() }
+        do { try await runtime.start() } catch {
+            record("occupancy-tracker-on-honest-move-trusted", pass: false, details: ["failure": "start: \(error)"])
+            record("occupancy-tracker-on-hidden-swap-revoked", pass: false, details: ["failure": "start: \(error)"])
+            record("occupancy-tracker-on-honest-promotion-trusted", pass: false, details: ["failure": "start: \(error)"]); return
+        }
+        do {
+            var d: [String: Any] = [:]
+            let feed = ScriptedFeed(runtime: runtime, session: ["sessionId": "selftest-honest", "epoch": 1])
+            // A real 100,000-node analysis is pending in the engine slot while the tracker requests run.
+            let identity: [String: Any] = ["sessionId": "selftest-occupancy", "epoch": 1, "sequence": 1, "frameSha256": String(repeating: "c", count: 64), "revision": 1]
+            let analyzeText = String(data: try! JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "requestId": "occupancy-held-analysis", "kind": "analyze", "confirmation": true,
+                                                                                         "fen": startFEN, "nodes": 100_000, "identity": identity], options: [.sortedKeys]), encoding: .utf8)!
+            @MainActor final class Flag { var done = false }
+            let analysis = Flag()
+            let held = Task { @MainActor () -> String in
+                defer { analysis.done = true }
+                do { _ = try await runtime.submit(commandJSON: analyzeText, timeoutMilliseconds: 30_000); return "reply" }
+                catch NativeEngineRuntimeError.cancelled { return "cancelled" } catch { return "error: \(error)" }
+            }
+            await pause(20)
+            var replies: [String: Any] = [:], ready = false, readyFEN: Any = NSNull(), refusals: [String] = []
+            do {
+                d["analysisPendingAtFirstTrackerRequest"] = !analysis.done
+                replies["start"] = Self.trackerSummary(try await feed.start(startFEN))
+                replies["startSeen"] = Self.trackerSummary(try await feed.read(startFEN, times: 2))
+                replies["e4FirstReading"] = Self.trackerSummary(try await feed.read(afterE4))
+                replies["e4Accepted"] = Self.trackerSummary(try await feed.read(afterE4, times: 10))
+                let snap = try await feed.snapshot(after: 50)
+                replies["snapshot50ms"] = Self.trackerSummary(snap)
+                ready = snap["trackingReady"] as? Bool == true; readyFEN = (snap["state"] as? [String: Any])?["fen"] ?? NSNull()
+                replies["snapshot300msNoReading"] = Self.trackerSummary(try await feed.snapshot(after: 300))
+                d["analysisPendingAfterTrackerRequests"] = !analysis.done
+            } catch { refusals.append("\(error)") }
+            d["analysisOutcome"] = await held.value
+            d["replies"] = replies; d["errors"] = refusals; d["trackerRequests"] = feed.requests
+            let e4 = replies["e4FirstReading"] as? [String: Any], stale = replies["snapshot300msNoReading"] as? [String: Any]
+            let pass = refusals.isEmpty && ready && readyFEN as? String == afterE4 && e4?["trackingReady"] as? Bool == false
+                && (replies["snapshot50ms"] as? [String: Any])?["lastMove"] as? String == "e4"
+                && stale?["trackingReady"] as? Bool == false && stale?["reason"] as? String == "picture-gap"
+                && d["analysisOutcome"] as? String == "reply"
+            record("occupancy-tracker-on-honest-move-trusted", pass: pass, details: d, label: "scripted SYNTHETIC readings, not a camera; scripted review fixture, not human review")
+        }
+        if Task.isCancelled { return }
+        do {
+            var d: [String: Any] = [:], replies: [String: Any] = [:], errors: [String] = []
+            // epoch 2: a new tracker session after the honest game (same JS tracker, newer epoch). The tracker has one clock
+            // that never runs backwards, so this script continues later in time (the honest game ended near 1,500 ms).
+            let feed = ScriptedFeed(runtime: runtime, session: ["sessionId": "selftest-swap", "epoch": 2], time: 10_000)
+            do {
+                replies["start"] = Self.trackerSummary(try await feed.start(startFEN))
+                replies["startSeen"] = Self.trackerSummary(try await feed.read(startFEN, times: 2))
+                replies["handOverB1G1"] = Self.trackerSummary(try await feed.read(startFEN, hidden: ["b1", "g1"]))
+                replies["e4After"] = Self.trackerSummary(try await feed.read(afterE4, times: 11))
+                replies["snapshot"] = Self.trackerSummary(try await feed.snapshot(after: 50))
+                replies["laterReadings"] = Self.trackerSummary(try await feed.read(afterE4, times: 3))
+            } catch { errors.append("\(error)") }
+            d["replies"] = replies; d["errors"] = errors
+            let seen = replies["startSeen"] as? [String: Any], after = replies["e4After"] as? [String: Any]
+            let pass = errors.isEmpty && seen?["trackingReady"] as? Bool == true
+                && after?["trackingReady"] as? Bool == false && after?["reason"] as? String == "pieces-may-have-swapped"
+                && (replies["snapshot"] as? [String: Any])?["trackingReady"] as? Bool == false
+                && (replies["laterReadings"] as? [String: Any])?["trackingReady"] as? Bool == false
+            record("occupancy-tracker-on-hidden-swap-revoked", pass: pass, details: d, label: "scripted SYNTHETIC readings, not a camera; scripted review fixture, not human review")
+        }
+        if Task.isCancelled { return }
+        // 4. Promotion: occupancy cannot see the new piece, so the scripted person answers with trackerAnswerPromotion. An answer
+        // stamped with an older reading's time is rejected without effect; the answer stamped with the latest reading is accepted,
+        // and the tracker becomes ready only after fresh readings of the promoted position.
+        do {
+            let promotionFEN = "7k/P7/8/8/8/8/8/K7 w - - 0 1", promotedFEN = "N6k/8/8/8/8/8/8/K7 b - - 0 1"
+            var d: [String: Any] = [:], replies: [String: Any] = [:], errors: [String] = []
+            var questionAsked = false, lateRejected = false, accepted = false
+            let session: [String: Any] = ["sessionId": "selftest-promotion", "epoch": 3]
+            let feed = ScriptedFeed(runtime: runtime, session: session, time: 20_000)
+            do {
+                replies["start"] = Self.trackerSummary(try await feed.start(promotionFEN))
+                replies["startSeen"] = Self.trackerSummary(try await feed.read(promotionFEN, times: 2))
+                let asked = try await feed.read(promotedFEN, times: 4)
+                replies["promotionReadings"] = Self.trackerSummary(asked)
+                let questionId = ((asked["state"] as? [String: Any])?["pendingQuestion"] as? [String: Any])?["questionId"] as? String ?? ""
+                questionAsked = !questionId.isEmpty && (asked["state"] as? [String: Any])?["status"] as? String == "awaiting-promotion-choice"
+                let late = try await feed.send("trackerAnswerPromotion", ["session": session, "questionId": questionId, "piece": "n", "atMs": feed.time - 100])
+                let lateState = late["state"] as? [String: Any] ?? [:]
+                lateRejected = lateState["rejected"] as? String == "late-answer" && lateState["status"] as? String == "awaiting-promotion-choice"
+                replies["lateAnswer"] = Self.trackerSummary(late)
+                let answer = try await feed.send("trackerAnswerPromotion", ["session": session, "questionId": questionId, "piece": "n", "atMs": feed.time])
+                accepted = (answer["state"] as? [String: Any])?["accepted"] as? Bool == true && answer["trackingReady"] as? Bool == false
+                replies["answer"] = Self.trackerSummary(answer)
+                replies["promotedSeen"] = Self.trackerSummary(try await feed.read(promotedFEN, times: 2))
+                replies["snapshot"] = Self.trackerSummary(try await feed.snapshot(after: 50))
+            } catch { errors.append("\(error)") }
+            d["replies"] = replies; d["errors"] = errors; d["questionAsked"] = questionAsked; d["lateAnswerRejected"] = lateRejected; d["answerAccepted"] = accepted
+            let seen = replies["promotedSeen"] as? [String: Any], snap = replies["snapshot"] as? [String: Any]
+            let pass = errors.isEmpty && questionAsked && lateRejected && accepted
+                && seen?["trackingReady"] as? Bool == true && seen?["fen"] as? String == promotedFEN
+                && snap?["trackingReady"] as? Bool == true && snap?["guidanceAllowed"] as? Bool == false
+            record("occupancy-tracker-on-honest-promotion-trusted", pass: pass, details: d, label: "scripted SYNTHETIC readings and a scripted answer, not a camera or a person")
+        }
     }
 
     /// Every analysis that returned a move searched the app's node budget and reported its speed.

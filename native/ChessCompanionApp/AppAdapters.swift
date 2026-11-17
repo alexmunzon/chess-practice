@@ -95,7 +95,7 @@ actor OfflinePixelRecognizer: OfflineImageRecognizer {
     private let runtime: NativeEngineRuntime
     private let chess: LocalChessAdapters
     init(resources: StudyResources) throws {
-        runtime = try NativeEngineRuntime(resourceDirectory: resources.runtimeDirectory())
+        runtime = try NativeEngineRuntime(resourceDirectory: resources.runtimeDirectory(), occupancyTracker: TrackerSetting.enabled)
         chess = LocalChessAdapters(transport: NativeRuntimeTransport(runtime: runtime))
         // Immediate closed signal: the runtime calls this once when it stops (explicit close included;
         // close() clears the handler first, so only a self-stop reaches the model).
@@ -126,6 +126,10 @@ actor OfflinePixelRecognizer: OfflineImageRecognizer {
     func searchReport(for request: UUID) -> SearchReport? { chess.lastSearch?.request == request ? chess.lastSearch?.report : nil }
     /// Self-test diagnostics only: true while the local runtime (and so any engine worker in it) is running.
     var runtimeRunning: Bool { runtime.isReady }
+    /// Self-test diagnostics only: the occupancy-tracker setting this backend's runtime was created with.
+    var occupancyTrackerEnabled: Bool { runtime.occupancyTrackerEnabled }
+    /// Self-test diagnostics only: one raw runtime command through this backend's own runtime.
+    func submitRuntimeCommand(_ commandJSON: String) async throws -> String { try await runtime.submit(commandJSON: commandJSON, timeoutMilliseconds: 5_000) }
 #endif
     func speech(fen: String, move: String) async throws -> String { try await reporting { try await chess.speechForLegalMove(fen: fen, moveUCI: move) } }
     func cancel() { chess.cancel() }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Score the screen pipeline (scripts/recognition/screen_pipeline.py). Simulated images only.
 
-Game mode:   --scenes ROOT --split NAME --out DIR [--classifier v2|v3] [--agree 1,2]
+Game mode:   --scenes ROOT --split NAME --out DIR [--classifier v2|v3] [--agree 1,2] [--start-fallback v4] [--start-self-check]
+             [--corner-finder original|round2]
   Every game runs for each AGREE_FRAMES value (side by side) in two modes. "strict": never reset;
   once the tracker is behind we record what happens. "re-review": a simulated human resets the
   tracked FEN to the truth. One-picture-per-position roots (no `positionIndex`): reset after any
@@ -243,6 +244,8 @@ def run_mode(mode, scenes, game, dets, bridge, cache, images, start_pictures=Non
                'positionsTrackedBeforeLoss': (lost_at - 1 if lost_at else n_pos) if started else 0}
     summary['framesTrackedBeforeLoss'] = summary['positionsTrackedBeforeLoss']  # = pictures in one-picture roots
     summary['trackedEndToEndZeroReReviews'] = started and lost_at is None and rereviews == 0
+    if tracker.start_fallback is not None:  # fallback on: which reader accepted the start (and read the game)
+        summary['startReader'] = tracker.reader_name if started else None
     return out, summary, positions
 
 
@@ -288,6 +291,10 @@ def evaluate_games(scenes, split, out, binary, agrees=('1', '2'), self_ns=(), al
                                     'true corners: orientation a human points out on re-review when the detector '
                                     'refused it', 'everything in scoring'],
               'configs': {}}
+    if sp.START_FALLBACK_CLASSIFIER is not None:  # only when on, so reports with the fallback off are unchanged
+        report['startFallback'] = sp.START_FALLBACK_CLASSIFIER
+    if sp.START_SELF_CHECK:  # only when on, so reports with the option off are unchanged
+        report['startSelfCheck'] = True
     timing = {k: [] for k in ('decode', 'detect', 'rectify', 'classify', 'infer', 'total')}
     events, blocked, debug_saved, detector_errors = [], [], {}, []
     store = {c: {m: {'records': [], 'summaries': [], 'positions': []} for m in modes} for c in agrees}
@@ -472,6 +479,10 @@ def summarise(tag, game_records, summaries, game_positions, scenes, out, events,
             'reReviewsPer100Positions': round(100 * pos_overall['reReviews'] / max(1, pos_overall['positions']), 2),
             'overall': overall, 'by': by, 'positions': pos_overall, 'positionsBy': pos_by, 'squares': sq,
             'confusionTruthByLabel': confusion, 'games_': summaries}
+    if any('startReader' in s for s in summaries):  # fallback on
+        readers = [s['startReader'] for s in started]
+        head['startsByReader'] = {r: readers.count(r) for r in sorted(set(readers))}
+        head['startsViaFallback'] = sum(r != sp._CLASSIFIER['name'] for r in readers)
     if tag.endswith('strict'):
         head['meanPositionsTrackedBeforeLoss'] = round(float(np.mean(
             [s['positionsTrackedBeforeLoss'] for s in started])), 1) if started else 0
@@ -490,6 +501,8 @@ def print_headline(report):
             print(f"{c}: games {h['games']}, starts accepted {h['startAccepted']} (first picture only "
                   f"{h['startAcceptedFirstPictureOnly']}), end-to-end 0 re-reviews {h['gamesTrackedEndToEndZeroReReviews']}, "
                   f"re-reviews/100 positions {h['reReviewsPer100Positions']}"
+                  + (f", starts via fallback {h['startsViaFallback']} {h['startsByReader']}"
+                     if 'startsViaFallback' in h else '')
                   + (f", mean positions tracked before loss {h.get('meanPositionsTrackedBeforeLoss')}"
                      if mode == 'strict' else ''))
         cols = ['bucket', 'pics'] + [f'{c} {k}' for k in ('WRONG', 'correct', 'pending', 'withheld') for c in cfgs] \
@@ -661,19 +674,31 @@ def main():
     ap.add_argument('--single-scenes', type=Path)
     ap.add_argument('--single-split', default='dev', choices=['dev', 'heldout'])
     ap.add_argument('--out', required=True, type=Path)
-    ap.add_argument('--detector', type=Path, default=sp.DEFAULT_DETECTOR)
+    ap.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides --corner-finder)')
+    ap.add_argument('--corner-finder', default=sp.DEFAULT_FINDER, choices=sorted(sp.FINDERS),
+                    help=f'corner finder by name (default {sp.DEFAULT_FINDER})')
     ap.add_argument('--classifier', default=sp.DEFAULT_CLASSIFIER, choices=sorted(sp.CLASSIFIERS))
     ap.add_argument('--agree', default='1,2', help='configs side by side: 1, 2, 2of3 (window alternative)')
     ap.add_argument('--self-aware-n', default='', help='extra SELF_REVIEW_AFTER_WITHHELD values to score (dev only)')
     ap.add_argument('--allow-detector-errors', action='store_true')
     ap.add_argument('--agree-interruption', choices=['reset', 'skip-unusable'], default=sp.POLICY['AGREE_INTERRUPTION'])
+    ap.add_argument('--start-fallback', choices=sorted(sp.CLASSIFIERS), default=None,
+                    help='backup reader tried only when --classifier refuses a start picture (off by default)')
+    ap.add_argument('--start-self-check', action='store_true',
+                    help='the default reader must read its start picture back as the stated start (off by default)')
     a = ap.parse_args()
+    if a.detector is not None and a.corner_finder != sp.DEFAULT_FINDER:
+        ap.error('give --detector or --corner-finder, not both')
+    sp.set_finder(a.corner_finder)
+    detector = a.detector if a.detector is not None else sp.finder_path()
     sp.POLICY['AGREE_INTERRUPTION'] = a.agree_interruption
     sp.set_classifier(a.classifier)
+    sp.set_start_fallback(a.start_fallback)
+    sp.set_start_self_check(a.start_self_check)
     if a.single_scenes:
-        evaluate_single(a.single_scenes, a.single_split, a.out, a.detector)
+        evaluate_single(a.single_scenes, a.single_split, a.out, detector)
     elif a.scenes and a.split:
-        evaluate_games(a.scenes, a.split, a.out, a.detector, tuple(a.agree.split(',')),
+        evaluate_games(a.scenes, a.split, a.out, detector, tuple(a.agree.split(',')),
                        tuple(int(x) for x in a.self_aware_n.split(',') if x), a.allow_detector_errors)
     else:
         ap.error('give --scenes and --split, or --single-scenes')

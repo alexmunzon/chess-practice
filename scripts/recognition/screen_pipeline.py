@@ -17,6 +17,9 @@ the first that passes the 4-rotation test; every later usable start picture must
 Truth is used for startFen only.
 
 CLI: python3 -B scripts/recognition/screen_pipeline.py --scenes ROOT --game ID --out DIR [--classifier v2|v3] [--agree N]
+     [--start-fallback v4]   (off by default; see START_FALLBACK_CLASSIFIER)
+     [--start-self-check]    (off by default; see START_SELF_CHECK)
+     [--corner-finder original|round2]   (default original; see FINDERS)
 """
 import argparse
 import hashlib
@@ -38,6 +41,12 @@ import occupancy_classifier as oc  # noqa: E402
 
 BUILD = Path('/Users/alexmunzon/chess-builds/pipeline-2026-11-15/pipeline')
 DEFAULT_DETECTOR = BUILD / 'bin/screen-board-detect'
+# Corner finder by name (same style as the reader choice). 'original' is the frozen finder (sha256 b5774046...);
+# 'round2' is the reviewed round-2 finder (sha256 3292bcae...; strict improvement on ordinary pictures, NOT a guard
+# against lens distortion). The default stays 'original' until the owner reviews the development numbers.
+FINDERS = {'original': DEFAULT_DETECTOR, 'round2': BUILD / 'bin/screen-board-detect-round2'}
+DEFAULT_FINDER = 'original'
+_FINDER = {'name': DEFAULT_FINDER}
 INFER_CLI = ROOT / 'scripts/recognition/occupancy-infer-cli.mjs'
 PANEL = 640
 BOARD_LO, BOARD_HI = oc.BOARD_ORIGIN[0], oc.BOARD_ORIGIN[0] + 8 * oc.TILE_SIZE  # 64..576
@@ -78,10 +87,23 @@ POLICY = {
 CLASSIFIERS = {'v2': 'occupancy_classifier', 'v3': 'occupancy_classifier_v3', 'v4': 'occupancy_classifier_v4'}
 _CLASSIFIER = {'name': None, 'module': None}  # filled by set_classifier(DEFAULT_CLASSIFIER) below
 DEFAULT_CLASSIFIER = 'v3'  # CLI and library default; v2 (blur-gate hole closed only in v3.1) only when asked by name
+# Start fallback ("backup reader at game start"). None = off (default; behaviour identical to before the option).
+# 'v4' = when the current reader calibrates the start picture in NONE of the 4 orientations, try this reader on
+# the same picture; if it calibrates exactly one AND its own reading of that picture is exactly the stated start
+# (self-check: 64 of 64 squares, no unknown), the start is accepted and THIS reader reads the rest of that game
+# (its calibration is the game's calibration). Never used when the current reader accepts, or when it refuses because
+# 2+ orientations calibrated (an ambiguous orientation is a protective refusal). Keep None until the v4.3 review
+# approves v4.3. Set with set_start_fallback(name) or --start-fallback; see docs/SCREEN_PIPELINE.md.
+START_FALLBACK_CLASSIFIER = None
+# Start self-check for the default reader. False = off (default; behaviour identical to before the option). True = when
+# the default reader calibrates exactly one orientation of the start picture, read that same picture back with the new
+# calibration and accept the start only if all 64 squares come back exactly as stated (the fallback's self-check, now
+# also on the default reader's starts). A start refused this way is never handed to the fallback. Set with
+# set_start_self_check(on) or --start-self-check; see docs/SCREEN_PIPELINE.md.
+START_SELF_CHECK = False
 
 
-def set_classifier(name):
-    """Pick the square classifier by name (module imported on demand). Neither file is ever edited here."""
+def _import_classifier(name):
     if name not in CLASSIFIERS:
         raise SystemExit(f'unknown classifier {name!r}; choose v2 or v3')
     try:
@@ -92,11 +114,54 @@ def set_classifier(name):
     for attr in ('calibrate', 'classify', 'CalibrationError'):
         if not hasattr(module, attr):
             raise SystemExit(f'{CLASSIFIERS[name]}.py has no {attr}(); it must match the v2 API')
+    return module
+
+
+def set_classifier(name):
+    """Pick the square classifier by name (module imported on demand). Neither file is ever edited here."""
+    module = _import_classifier(name)
     _CLASSIFIER.update(name=name, module=module)
     return module
 
 
+def set_start_fallback(name):
+    """Turn the start fallback on (a reader name from CLASSIFIERS) or off (None). Returns the previous setting so a
+    caller can restore it. Trackers read the setting when they are created; a running game is not affected."""
+    global START_FALLBACK_CLASSIFIER
+    if name is not None:
+        _import_classifier(name)  # fail now, not at the first refused start
+    old, START_FALLBACK_CLASSIFIER = START_FALLBACK_CLASSIFIER, name
+    return old
+
+
+def set_start_self_check(on):
+    """Turn the default reader's start self-check on (True) or off (False). Returns the previous setting so a caller
+    can restore it. Trackers read the setting when they are created; a running game is not affected."""
+    global START_SELF_CHECK
+    old, START_SELF_CHECK = START_SELF_CHECK, bool(on)
+    return old
+
+
 set_classifier(DEFAULT_CLASSIFIER)  # start-up reader is v3, so callers that never pick one get the safe reader
+
+
+def set_finder(name):
+    """Pick the corner finder by name. Refuses an unknown name or a binary that is missing or not executable
+    (SystemExit; the current finder stays). Returns the previous name so a caller can restore it. Never falls back to
+    another finder: if the chosen binary disappears later, run_detector records detector errors for every picture."""
+    if name not in FINDERS:
+        raise SystemExit(f'unknown corner finder {name!r}; choose one of {", ".join(sorted(FINDERS))}')
+    path = Path(FINDERS[name])
+    if not (path.is_file() and os.access(path, os.X_OK)):
+        raise SystemExit(f'corner finder {name} needs {path}, which is missing or not executable')
+    old = _FINDER['name']
+    _FINDER['name'] = name
+    return old
+
+
+def finder_path():
+    """Binary of the selected corner finder (no existence check here: a missing binary becomes detector errors)."""
+    return FINDERS[_FINDER['name']]
 
 
 def clf():
@@ -114,8 +179,29 @@ def policy():
     doc = {'pipeline': dict(POLICY), 'classifier': mod.policy() if hasattr(mod, 'policy') else {}}
     if _CLASSIFIER['name'] != 'v2':  # v2 keeps the round-1 hash layout
         doc['classifierName'] = _CLASSIFIER['name']
+    if START_FALLBACK_CLASSIFIER is not None:  # only when on, so the policy hash with the fallback off is unchanged
+        fb = _import_classifier(START_FALLBACK_CLASSIFIER)
+        doc['startFallback'] = {'classifierName': START_FALLBACK_CLASSIFIER,
+                                'classifier': fb.policy() if hasattr(fb, 'policy') else {},
+                                'rule': 'tried only when the reader calibrates 0 of 4 orientations of a start picture; '
+                                        'accepted only if it calibrates exactly 1 and reads that picture back as the '
+                                        'stated start on all 64 squares; the reader that accepted the start reads '
+                                        'the rest of the game'}
+    if START_SELF_CHECK:  # only when on, so the policy hash with the option off is unchanged
+        doc['startSelfCheck'] = {'rule': 'a start the default reader calibrates in exactly 1 orientation is accepted '
+                                         'only if that reader then reads the start picture back as the stated start '
+                                         'on all 64 squares; a refused start is not handed to the fallback'}
+    if _FINDER['name'] != DEFAULT_FINDER:  # only when not the original, so the default policy hash is unchanged
+        doc['cornerFinder'] = {'name': _FINDER['name'], 'binarySha256': _file_sha256(finder_path())}
     doc['sha256'] = hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()
     return doc
+
+
+def _file_sha256(path):
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None  # missing binary: recorded as such; the run itself then fails closed with detector errors
 
 
 # ------------------------------------------------------------------ square order ----
@@ -228,10 +314,13 @@ def order_like_detector(corners):
 
 
 # ------------------------------------------------------------------ detector ----
-def run_detector(paths, binary=DEFAULT_DETECTOR, chunk=40):
+def run_detector(paths, binary=None, chunk=40):
     """Run the corner binary on image paths (stateless per image; batched to save process starts).
+    binary=None = the selected corner finder (set_finder; default 'original' = DEFAULT_DETECTOR).
     A crash, a non-zero exit, malformed JSON or a missing answer is recorded as a DETECTOR ERROR
     (`error: true`, reason detector-error:...), never as "board not found"; a warning is printed."""
+    if binary is None:
+        binary = finder_path()
     out = {}
     paths = [str(p) for p in paths]
     for i in range(0, len(paths), chunk):
@@ -328,6 +417,43 @@ class GameTracker:
         self.unchanged_run = 0     # consecutive "unchanged" readings (for currentConfirmed)
         self.withheld_run = 0      # consecutive withheld pictures (for the self-aware review request)
         self.no_legal_run = 0
+        self.start_fallback = START_FALLBACK_CLASSIFIER  # read once: one game never changes its fallback setting
+        self.reader_name = None    # fallback on: name of the reader that accepted the start (reads the whole game)
+        self.reader_module = None  # set only when the fallback reader accepted the start; None = clf()
+        self.start_self_check = START_SELF_CHECK  # read once, like the fallback setting
+
+    def _calibrate_rotations(self, module, panel, a8_grid, corners):
+        ok, tried = [], []
+        for r in range(4):
+            stated = dict(zip(SQUARES_A8H1, screen_from_a8(a8_grid, r)))  # tile names = panel positions
+            try:
+                cal = module.calibrate(panel, stated)
+                ok.append((r, cal, rotate(corners, r)))
+                tried.append({'rotation': r, 'calibrated': True})
+            except module.CalibrationError as error:
+                tried.append({'rotation': r, 'calibrated': False, 'error': str(error)[:160]})
+        return ok, tried
+
+    @staticmethod
+    def _fallback_self_check(module, panel, a8_grid, accepted, rec):
+        """Fallback path only. A reader's start check (calibrate) does not apply the rules it uses on later pictures,
+        so v4.3 alone accepts some pictures that are not the start (independent review, 2026-11-16). Read the start
+        picture itself with the new calibration: accept only if all 64 squares come back exactly as stated
+        (no unknown, no other label). Records the result in rec['fallbackSelfCheck']; returns True if it passes."""
+        off = GameTracker._read_back(module, panel, a8_grid, accepted)
+        rec['fallbackSelfCheck'] = {'passed': not off, 'squaresNotAsStated': len(off), 'examples': dict(list(off.items())[:4])}
+        if off:
+            rec['startFallback'] = 'refused-self-check'
+        return not off
+
+    @staticmethod
+    def _read_back(module, panel, a8_grid, accepted):
+        """Read the start picture with the calibration it just produced; returns {square: 'stated->read'} for every
+        square that does not come back exactly as stated (empty dict = all 64 as stated)."""
+        r, cal, _ = accepted
+        result = module.classify(panel, cal)
+        read = a8_from_screen(labels_a8h1(result), r)  # screen-upright tiles -> a8..h1 board squares
+        return {s: f'{want}->{got}' for s, want, got in zip(SQUARES_A8H1, a8_grid, read) if got != want}
 
     def start(self, index, image, det, decode_ms=0.0):
         """One start picture. Before the start is locked it tries the 4-rotation test; afterwards each
@@ -345,23 +471,44 @@ class GameTracker:
             return rec
         if callable(image):
             image = image()
-        ok, tried = [], []
         t = time.perf_counter()
         panel = rectify(image, det['corners'])  # screen-upright panel: pieces stand as drawn on screen
         a8_grid = [oc.occupancy_from_fen(self.start_fen)[s] for s in SQUARES_A8H1]
-        for r in range(4):
-            stated = dict(zip(SQUARES_A8H1, screen_from_a8(a8_grid, r)))  # tile names = panel positions
-            try:
-                cal = clf().calibrate(panel, stated)
-                ok.append((r, cal, rotate(det['corners'], r)))
-                tried.append({'rotation': r, 'calibrated': True})
-            except clf().CalibrationError as error:
-                tried.append({'rotation': r, 'calibrated': False, 'error': str(error)[:160]})
+        ok, tried = self._calibrate_rotations(clf(), panel, a8_grid, det['corners'])
+        cause = f'{len(ok)}-rotations-calibrated'  # the default reader's verdict names a refusal
+        via_fallback = False
+        self_check_refused = False
+        if self.start_self_check and len(ok) == 1:
+            t_check = time.perf_counter()
+            off = self._read_back(clf(), panel, a8_grid, ok[0])
+            rec['startSelfCheck'] = {'passed': not off, 'squaresNotAsStated': len(off),
+                                     'examples': dict(list(off.items())[:4]),
+                                     'ms': round((time.perf_counter() - t_check) * 1000, 1)}
+            if off:  # the reader calibrated, but its own reading of this picture is not the stated start: refuse
+                ok, cause, self_check_refused = [], 'start-self-check-failed', True
+        if self.start_fallback is not None:
+            if self_check_refused:
+                rec['startFallback'] = 'not-tried'   # a protective refusal, like an ambiguous orientation
+            elif len(ok) == 1:
+                rec['startFallback'] = 'not-needed'  # the default reader accepted: the fallback is never asked
+            elif ok or self.start_fallback == _CLASSIFIER['name']:
+                rec['startFallback'] = 'not-tried'   # 2+ orientations fit: ambiguous, a refusal that protects
+            else:
+                fb = _import_classifier(self.start_fallback)
+                ok, rec['fallbackRotationsTried'] = self._calibrate_rotations(fb, panel, a8_grid, det['corners'])
+                if len(ok) == 1 and not self._fallback_self_check(fb, panel, a8_grid, ok[0], rec):
+                    ok = []  # the backup's own reading of its start picture is not the stated start: refuse
+                via_fallback = len(ok) == 1
+                rec['startFallback'] = 'accepted' if via_fallback else rec.get('startFallback', 'refused')
         rec['timingsMs']['startCalibration'] = round((time.perf_counter() - t) * 1000, 1)
         rec['rotationsTried'] = tried
         if len(ok) != 1:
-            rec.update(status='start-rejected', cause=f'{len(ok)}-rotations-calibrated', trackedFen=None)
+            rec.update(status='start-rejected', cause=cause, trackedFen=None)
             return rec
+        if self.start_fallback is not None:
+            self.reader_name = self.start_fallback if via_fallback else _CLASSIFIER['name']
+            self.reader_module = fb if via_fallback else None
+            rec['startReader'] = self.reader_name
         self.rotation, self.calibration, self.reference = ok[0]
         self.fen = self.start_fen
         self.started = True
@@ -388,6 +535,8 @@ class GameTracker:
 
     def classify_frame(self, key, image, screen_corners, r):
         """Classify the screen-upright panel (detector corner order), then turn labels into a8..h1 order."""
+        if self.reader_module is not None:  # fallback reader: its readings never share a cache slot with the default's
+            key = (self.reader_name, key)
         if key not in self.cache:
             self.cache[key] = self._classify_screen(image, screen_corners)
         out = dict(self.cache[key])
@@ -400,7 +549,7 @@ class GameTracker:
         t = time.perf_counter()
         panel = rectify(image, corners)
         t1 = time.perf_counter()
-        result = clf().classify(panel, self.calibration)
+        result = (self.reader_module or clf()).classify(panel, self.calibration)  # the reader that calibrated
         t2 = time.perf_counter()
         labels = labels_a8h1(result)  # tile order of the screen-upright panel
         reasons = {}
@@ -454,6 +603,8 @@ class GameTracker:
         rec['timingsMs'].update(rectify=round(cl['rectifyMs'], 1), classify=round(cl['classifyMs'], 1))
         rec['labelsA8H1'] = ''.join(SHORT[x] for x in cl['labels'])
         rec['unknownReasons'] = cl['reasons']
+        if self.start_fallback is not None:
+            rec['reader'] = self.reader_name
         t = time.perf_counter()
         res = self.bridge.infer(self.fen, a8h1_to_a1h8(cl['labels']),
                                 {'assumeUntouchedUnknowns': True} if POLICY['ASSUME_UNTOUCHED_UNKNOWNS'] else {})
@@ -547,7 +698,7 @@ def load_games(scenes):
     return json.loads((Path(scenes) / 'truth/games.json').read_text())
 
 
-def run_game(scenes, game, out=None, binary=DEFAULT_DETECTOR, start_pictures=1):
+def run_game(scenes, game, out=None, binary=None, start_pictures=1):
     """Strict single pass (no re-review). Uses only game['startFen'], the picture files in order and
     `start_pictures` (how many leading pictures the human reviewed as the start, supplied by the caller)."""
     scenes = Path(scenes)
@@ -577,13 +728,25 @@ def main():
     ap.add_argument('--scenes', required=True, type=Path)
     ap.add_argument('--game', required=True)
     ap.add_argument('--out', required=True, type=Path)
-    ap.add_argument('--detector', type=Path, default=DEFAULT_DETECTOR)
+    ap.add_argument('--detector', type=Path, default=None, help='corner binary by path (overrides --corner-finder)')
+    ap.add_argument('--corner-finder', default=DEFAULT_FINDER, choices=sorted(FINDERS),
+                    help=f'corner finder by name (default {DEFAULT_FINDER})')
     ap.add_argument('--classifier', default=DEFAULT_CLASSIFIER, choices=sorted(CLASSIFIERS))
     ap.add_argument('--start-pictures', type=int, default=1,
                     help='how many leading pictures the human reviewed as the start position (default 1)')
     ap.add_argument('--agree', type=int, default=POLICY['AGREE_FRAMES'])
+    ap.add_argument('--start-fallback', choices=sorted(CLASSIFIERS), default=None,
+                    help='backup reader tried only when --classifier refuses a start picture (off by default; '
+                         'keep off until the v4.3 review approves v4)')
+    ap.add_argument('--start-self-check', action='store_true',
+                    help='the default reader must read its start picture back as the stated start (off by default)')
     a = ap.parse_args()
+    if a.detector is not None and a.corner_finder != DEFAULT_FINDER:
+        ap.error('give --detector or --corner-finder, not both')
+    set_finder(a.corner_finder)
     set_classifier(a.classifier)
+    set_start_fallback(a.start_fallback)
+    set_start_self_check(a.start_self_check)
     POLICY['AGREE_FRAMES'] = a.agree
     games = {g['id']: g for g in load_games(a.scenes)['games']}
     doc = run_game(a.scenes, games[a.game], a.out, a.detector, a.start_pictures)

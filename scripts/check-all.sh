@@ -19,7 +19,7 @@ run_suite() {
 }
 run_suite npm-test npm test
 if [ "$1" != "--quick" ]; then
-  for t in screen_pipeline occupancy_classifier_v3 occupancy_classifier_v4 occupancy_classifier screen_game_scenes mock_glasses_video mock_glasses_frame_age; do
+  for t in screen_pipeline occupancy_classifier_v3 occupancy_classifier_v4 occupancy_classifier piece_classifier_v1 piece_classifier_v2 piece_guard screen_game_scenes mock_glasses_video mock_glasses_frame_age; do
     if [ -f "tests/$t.py" ]; then run_suite "py-$t" python3 -B "tests/$t.py"; fi
   done
 fi

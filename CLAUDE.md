@@ -21,7 +21,7 @@ It runs `npm test` and the Python recognition tests and ends with "n of m suites
 (`--quick` runs only `npm test`). Status that a new session should read first and then re-check
 is in `orchestrator-state.json`.
 
-`npm test` on its own is the Node suite. Expected: 0 failures (346 tests, 338 pass, 8 skipped as of 2026-11-16 04:42; the count rises as
+`npm test` on its own is the Node suite. Expected: 0 failures (397 tests, 389 pass, 8 skipped as of 2026-11-17 07:15; `scripts/check-all.sh` 11 of 11 suites, re-run 11:20; the count rises as
 new test files land). It opens local listeners on 127.0.0.1, so it fails with `listen EPERM`
 inside the command sandbox; that is the sandbox, not the code.
 
@@ -32,6 +32,9 @@ python3 -B tests/screen_pipeline.py
 python3 -B tests/occupancy_classifier_v3.py
 python3 -B tests/occupancy_classifier_v4.py
 python3 -B tests/occupancy_classifier.py
+python3 -B tests/piece_classifier_v1.py
+python3 -B tests/piece_classifier_v2.py
+python3 -B tests/piece_guard.py
 python3 -B tests/screen_game_scenes.py
 python3 -B tests/mock_glasses_video.py
 python3 -B tests/mock_glasses_frame_age.py
@@ -48,7 +51,7 @@ The app was signed and installed on Alex's iPhone 17 (iOS 27.2) on 2026-11-15; s
 ## Ownership
 
 Fable orchestrates: plan, priorities, integration and review. Subagents get one focused task and
-their own files to write. Work is committed on `main` in checkpoints (latest `46ce560`, 2026-11-16),
+their own files to write. Work is committed on `main` in checkpoints (latest: the 2026-11-17 checkpoint, see `git log -1`, NOT pushed; the last pushed commit is `e482729`, 2026-11-16, on the private GitHub repo `alexmunzon/chess-practice`; each push needs Alex's words),
 but workers usually have uncommitted files in flight, so a git worktree would miss those; isolate
 agents by giving each its own files or directory to own, never two writers on one file, and keep
 build outputs outside the repo. Only one worker at a time uses the iOS Simulator, and heavy render

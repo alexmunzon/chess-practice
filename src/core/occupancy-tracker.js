@@ -90,8 +90,8 @@ export class OccupancyTracker {
   #pending = null; #question = null; #questionCounter = 0; #lastAnsweredId = null;
   #lastMove = null; #movesAccepted = 0; #baseOcc = null; #lift = null;
   // Since the last completed agreement (or confirm): squares any picture showed differently from the expected occupancy
-  // (unknown included), and whether any picture showed a definite change. See #swapPossible.
-  #disturbed = new Set(); #changeSeen = false;
+  // (unknown included), the subset that read unknown (hidden), and whether any picture showed a definite change. See #swapPossible.
+  #disturbed = new Set(); #hidden = new Set(); #changeSeen = false;
   // Rank-1 and rank-8 readings since the last completed agreement (castling check), the capture time of the last picture
   // that showed the board (gap check), and whether a picture was recorded since the last confirm (sequence check).
   #rankPatterns = new Set(); #lastSeenAt = null; #seenSinceConfirm = false;
@@ -126,7 +126,7 @@ export class OccupancyTracker {
     this.#lastSeenAt = null; this.#seenSinceConfirm = false;
   }
   /** An agreement completed (or the tracker revoked): disturbance evidence starts again from here. */
-  #settled() { this.#disturbed.clear(); this.#changeSeen = false; this.#rankPatterns.clear(); }
+  #settled() { this.#disturbed.clear(); this.#hidden.clear(); this.#changeSeen = false; this.#rankPatterns.clear(); }
   /**
    * Castling moves two pieces of the same colour, so its four squares alone cannot show which piece went where (rook h1-g1
    * then king e1-f1 ends with the same occupancy as O-O). It is accepted only if every picture since the last completed
@@ -146,20 +146,28 @@ export class OccupancyTracker {
   /**
    * Could pieces have been exchanged behind the pictures since the last completed agreement? `fenBefore` is the position
    * the run started from, `fenAfter` the one about to be trusted. A piece can only have moved if its square was disturbed in
-   * some picture (the one blind spot: a whole exchange between two consecutive pictures). The squares the legal move itself
-   * changes are taken to follow the move; any OTHER disturbed square that holds a piece afterwards could hold a different
-   * piece of the same colour whenever the disturbed squares held two or more piece types of that colour before.
+   * some picture. The squares the legal move itself changes are taken to follow the move; any OTHER disturbed square that
+   * holds a piece (of either side) afterwards could hold a different piece of the same colour, so it revokes.
+   * Round 5 revoked only when the disturbed squares held two or more piece types of that colour. Round 7 (rule R1, either
+   * colour): the partner need not have been disturbed in any picture. It can trade squares entirely inside one picture gap,
+   * or come from off the board (a spare or captured piece), for the side that moved and for the opponent alike.
+   * Round 7b: a square the move changes is excused, except a CAPTURED piece's square that read unknown in some picture: the
+   * piece there may have traded places with another piece of its colour while hidden, so the piece taken off the board may
+   * not be the one the tracker would remove. A hand covering that square while the capture is in progress reads the same
+   * as that trade, so it revokes too (the price of the rule).
+   * Not covered: the moving piece itself (traded or substituted between two pictures), and any exchange completed between two
+   * consecutive pictures with nothing read differently (see the doc).
    */
   #swapPossible(fenBefore, fenAfter) {
     if (!this.#disturbed.size) return false;
-    const before = loadPosition(fenBefore), after = fenAfter === fenBefore ? before : loadPosition(fenAfter);
     const occBefore = occupancyFromFen(fenBefore), occAfter = fenAfter === fenBefore ? occBefore : occupancyFromFen(fenAfter);
-    const pool = { w: new Set(), b: new Set() };
-    for (const i of this.#disturbed) { const p = before.get(OCCUPANCY_SQUARES[i]); if (p) pool[p.color].add(p.type); }
+    const opponent = fenBefore.split(' ')[1] === 'w' ? 'black' : 'white';
     for (const i of this.#disturbed) {
-      if (occBefore[i] !== occAfter[i]) continue; // a square the move itself changes
-      const p = after.get(OCCUPANCY_SQUARES[i]);
-      if (p && pool[p.color].size >= 2) return true;
+      if (occBefore[i] !== occAfter[i]) {
+        if (occBefore[i] === opponent && this.#hidden.has(i)) return true; // captured piece hidden before it was taken
+        continue; // a square the move itself changes
+      }
+      if (occAfter[i] !== 'empty') return true; // a piece of either side that may have been exchanged unseen
     }
     return false;
   }
@@ -243,12 +251,15 @@ export class OccupancyTracker {
   connect() { return this.invalidate('connected'); }
 
   /** Advance virtual time without a picture (runs watchdogs). Malformed time throws and revokes; a jump of more than
-   * maxSilenceMs revokes and leaves the clock where it was. */
+   * maxSilenceMs revokes and leaves the clock where it was. Round 7: the picture-gap rule applies here too, so a feed that
+   * stops is revoked once the clock is more than maxPictureGapMs past the last picture that showed the board. */
   tick(atMs) {
     if (!int(atMs)) { this.#revoke('invalid-time'); throw failure('tick needs a nonnegative safe integer.', 'INVALID_REQUEST'); }
     if (this.#tooFarAhead(atMs)) { this.#revoke('observation-timeout'); return this.#out('revoked', { error: 'tick jumped further ahead than maxSilenceMs.' }); }
     this.#advanceClock(atMs);
-    return this.#out(this.#watchdogs(this.#clock) ? 'revoked' : 'tick');
+    if (this.#watchdogs(this.#clock)) return this.#out('revoked');
+    if (this.#confirmed() && this.#clock - this.#lastSeenAt > this.#o.maxPictureGapMs) { this.#revoke('picture-gap'); return this.#out('revoked'); }
+    return this.#out('tick');
   }
 
   ingest(input) {
@@ -314,7 +325,7 @@ export class OccupancyTracker {
     // Disturbance evidence (every kept picture, usable or not): squares that differ from what the tracked position (or the open
     // promotion's position) shows, and whether any difference was a definite reading rather than "unknown".
     const expected = q ? q.occAfter : this.#base().occ;
-    for (let i = 0; i < 64; i++) if (occupancy[i] !== expected[i]) { this.#disturbed.add(i); if (occupancy[i] !== 'unknown') this.#changeSeen = true; }
+    for (let i = 0; i < 64; i++) if (occupancy[i] !== expected[i]) { this.#disturbed.add(i); if (occupancy[i] !== 'unknown') this.#changeSeen = true; else this.#hidden.add(i); }
     this.#rankPatterns.add(`1:${occupancy.slice(0, 8).join(',')}`); this.#rankPatterns.add(`8:${occupancy.slice(56, 64).join(',')}`);
     if (result.status === 'uncertain' || transit) {
       if (lifted >= 0) {
@@ -346,6 +357,9 @@ export class OccupancyTracker {
     // Likewise any other definite change (a move-shaped picture, a parked piece) that ends with the board unchanged.
     if (this.#changeSeen && key === 'unchanged') { this.#revoke('changed-and-returned'); return this.#out('revoked'); }
     if (this.#status === 'verifying' && key !== 'unchanged') { this.#revoke('confirmed-position-not-seen'); return this.#out('revoked'); }
+    // Round 7b: a repeated image (frozen or replayed feed) that shows a changed board cannot leave trust in place. (When not
+    // ready, a repeated image is evidence only: it never counts toward the agreement that would make the tracker ready.)
+    if (duplicate && key !== 'unchanged' && this.#status === 'ready') { this.#revoke('replayed-picture-changed'); return this.#out('revoked'); }
     if (evidenceOnly) return this.#out('ignored', { ignored: evidenceOnly });
 
     // Agreement: agreeFrames consecutive usable pictures, same key, same base FEN, each >= minFrameGapMs after the last

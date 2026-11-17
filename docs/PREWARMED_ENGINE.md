@@ -29,6 +29,15 @@ the caller's `requestId` and FEN.
   bounded by `2 x startupTimeoutMs + handoverTimeoutMs`, reported in `analysis.startup`.
 - **Analyze during warm-up waits** up to `startupTimeoutMs`, then (or on spare failure) falls back as above.
 - **No second engine:** `prewarm()` returns `false` without creating a worker while any analysis runs.
+- **Native busy rule (wired app):** `NativeEngineRuntime.submit` refuses `prewarm` and `cancelPrewarm` while a
+  real engine or Replay tracker request is pending ("Runtime busy; prewarm skipped."). Kept for `cancelPrewarm`
+  too, because the page's `DeviceBackend.handle` cancels the running job before it reads any command. What a
+  refused cancel leaves depends on what is pending. A pending analysis has already taken the spare (or is
+  waiting for it), so nothing is left over. A pending Replay tracker or `position`/`move` request has not, so
+  a ready spare survives (the app ignores the refusal) until the 60 s idle age or shutdown, or until the next
+  analysis takes it: at most about 70 s (10 s start-up plus 60 s idle). It holds no position, and no advice
+  comes back: the next analysis still needs a confirmed, reviewed position and searches that position itself.
+  Pinned by `RuntimeGuardChecks.swift`.
 - **Signals:** repeated `prewarm` calls share one spare; ANY caller's abort discards it (a cancel means some
   part of the app is leaving review; keeping a 99 MB engine for a stale caller is worse than re-creating
   it). The app should still own one prewarm controller.

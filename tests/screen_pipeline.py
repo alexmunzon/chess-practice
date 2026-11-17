@@ -101,6 +101,19 @@ class ScreenPipelineTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.bridge.close()
 
+    def setUp(self):
+        # some tests switch the reader or the corner finder; put the globals back to their defaults so later tests do
+        # not depend on order
+        finders = dict(sp.FINDERS)
+
+        def restore():
+            sp.set_classifier(sp.DEFAULT_CLASSIFIER)
+            sp.START_FALLBACK_CLASSIFIER = None
+            sp.START_SELF_CHECK = False
+            sp.FINDERS.clear(); sp.FINDERS.update(finders)
+            sp._FINDER['name'] = sp.DEFAULT_FINDER
+        self.addCleanup(restore)
+
     def test_square_order_conversion(self):
         a8h1 = ev.truth_occ_a8h1(AFTER_E4)
         a1h8 = sp.a8h1_to_a1h8(a8h1)
@@ -203,6 +216,73 @@ class ScreenPipelineTests(unittest.TestCase):
                 self.assertEqual(tracker.step(1, self.e4_img, det)['cause'], 'detector-error')
             det = sp.run_detector([img], Path(d) / 'missing-binary')[img]
             self.assertTrue(det['error'])
+
+    def _tagged_finders(self, d):
+        """Two stand-in finders that answer 'not found' with their own name as the reason."""
+        for name, tag in (('fakeA', 'fake-a'), ('fakeB', 'fake-b')):
+            exe = Path(d) / tag
+            exe.write_text('#!/bin/sh\nfor p in "$@"; do echo "{\\"image\\": \\"$p\\", \\"found\\": false, '
+                           '\\"confidence\\": 0, \\"reason\\": \\"' + tag + '\\"}"; done\n')
+            exe.chmod(0o755)
+            sp.FINDERS[name] = exe
+        return Path(d) / 'x.png'
+
+    def test_corner_finder_default_and_selection(self):
+        self.assertEqual((sp.DEFAULT_FINDER, sp._FINDER['name']), ('original', 'original'))
+        self.assertEqual(sp.finder_path(), sp.DEFAULT_DETECTOR)  # default = the frozen original binary
+        self.assertEqual(sp.FINDERS['round2'].name, 'screen-board-detect-round2')
+        self.assertNotIn('cornerFinder', sp.policy())  # default: policy hash layout unchanged
+        with tempfile.TemporaryDirectory() as d:
+            img = str(self._tagged_finders(d))
+            for name, tag in (('fakeA', 'fake-a'), ('fakeB', 'fake-b'), ('fakeA', 'fake-a')):
+                sp.set_finder(name)
+                self.assertEqual(sp.finder_path(), sp.FINDERS[name])
+                det = sp.run_detector([img])[img]  # no binary given: the selected finder runs
+                self.assertEqual((det['reason'], det['found'], det.get('error')), (tag, False, None))
+                self.assertEqual(sp.policy()['cornerFinder']['name'], name)
+            self.assertEqual(sp.set_finder('original'), 'fakeA')  # returns the previous name for restoring
+            self.assertNotIn('cornerFinder', sp.policy())
+        if sp.FINDERS['round2'].exists():  # the real round-2 binary on a blank frame
+            self.assertEqual(sp.set_finder('round2'), 'original')
+            self.assertEqual(sp.policy()['cornerFinder']['binarySha256'][:8], '3292bcae')
+            with tempfile.TemporaryDirectory() as d:
+                p = Path(d) / 'blank.png'
+                Image.new('RGB', (640, 480), (40, 40, 40)).save(p)
+                det = sp.run_detector([p])[str(p)]
+                self.assertFalse(det['found'])
+                self.assertFalse(det.get('error'))
+
+    def test_unknown_corner_finder_is_refused(self):
+        with self.assertRaises(SystemExit) as ctx:
+            sp.set_finder('round9')
+        self.assertIn('unknown corner finder', str(ctx.exception))
+        self.assertEqual(sp._FINDER['name'], 'original')  # a failed switch changes nothing
+
+    def test_missing_corner_finder_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            img = str(self._tagged_finders(d))
+            sp.set_finder('fakeA')
+            sp.FINDERS['gone'] = Path(d) / 'no-such-binary'
+            with self.assertRaises(SystemExit) as ctx:  # selecting a missing binary is refused at once
+                sp.set_finder('gone')
+            self.assertIn('missing or not executable', str(ctx.exception))
+            self.assertEqual(sp._FINDER['name'], 'fakeA')  # still the chosen finder, not silently another one
+            (Path(d) / 'not-exec').write_text('#!/bin/sh\n')  # present but not executable: refused too
+            sp.FINDERS['noexec'] = Path(d) / 'not-exec'
+            with self.assertRaises(SystemExit):
+                sp.set_finder('noexec')
+            # the selected binary disappears after selection: every picture is a detector error, and no other
+            # finder (fakeB, or the original) answers in its place (real pictures, so any finder could answer them)
+            imgs = [img, str(Path(d) / 'y.png')]
+            for p in imgs:
+                Image.new('RGB', (640, 480), (40, 40, 40)).save(p)
+            (Path(d) / 'fake-a').unlink()
+            dets = sp.run_detector(imgs)
+            self.assertEqual([(x['found'], x['error']) for x in dets.values()], [(False, True)] * 2)
+            self.assertTrue(all(x['reason'].startswith('detector-error:') for x in dets.values()))
+            tracker = sp.GameTracker(START, self.bridge)
+            rec = tracker.start(0, self.start_img, dets[img])
+            self.assertEqual((rec['status'], rec['cause']), ('start-rejected', 'detector-error'))
 
     def test_scorer_exits_nonzero_on_detector_errors(self):
         with tempfile.TemporaryDirectory() as d:
@@ -519,6 +599,356 @@ class ScorerTests(unittest.TestCase):
                   {'verdict': 'withheld', 'cause': 'detector-error'}):
             ev._add(b, v, 0)
         self.assertEqual((b['wrongAccepted'], b['correctAccepted'], b['withheldByCause']['detector-error']), (1, 1, 1))
+
+
+def warp_board(board, quad=QUAD):
+    """A 512x512 playing area warped into a dark 1280x800 frame at `quad` (same geometry as screen_frame)."""
+    h = sp.homography(quad, [(0, 0), (512, 0), (512, 512), (0, 512)])
+    xs, ys = np.meshgrid(np.arange(W, dtype=float), np.arange(H, dtype=float))
+    den = h[2, 0] * xs + h[2, 1] * ys + h[2, 2]
+    u = (h[0, 0] * xs + h[0, 1] * ys + h[0, 2]) / den - 0.5
+    v = (h[1, 0] * xs + h[1, 1] * ys + h[1, 2]) / den - 0.5
+    inside = ((u >= -0.5) & (u <= 511.5) & (v >= -0.5) & (v <= 511.5))[..., None]
+    return np.where(inside, sp._bilinear(np.asarray(board, np.float32), u, v), 30.0).astype(np.float32)
+
+
+def fake_reader(name, calibrate):
+    """A stand-in square reader with the v2 API. classify() fails the test if it is ever called."""
+    import types
+    mod = types.ModuleType(name)
+    mod.CalibrationError = type('CalibrationError', (Exception,), {})
+    mod.calls = []
+
+    def cal(panel, stated):
+        mod.calls.append('calibrate')
+        return calibrate(mod)
+
+    def classify(panel, calibration):
+        raise AssertionError(f'{name}.classify must not be called')
+    mod.calibrate, mod.classify = cal, classify
+    return mod
+
+
+class StartFallbackTests(unittest.TestCase):
+    """Backup reader at game start (START_FALLBACK_CLASSIFIER). Solid ('flat') pieces drawn by the scene generator
+    are a real case where v3.1 refuses the start and v4.3 accepts it (measured: v3 0 of 4 orientations, v4 exactly 1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import make_screen_game_scenes as gen  # generator drawing only, never used by a reader
+        cls.bridge = sp.InferBridge()
+        cls.flat = {(fen, wb): warp_board(gen.stress_board(fen, wb, {'style': 'flat'}))
+                    for fen in (START, AFTER_E4) for wb in (True, False)}
+        cls.classic_start = screen_frame(START)
+        cls.classic_e4 = screen_frame(AFTER_E4)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.bridge.close()
+
+    def setUp(self):
+        # leave global state exactly as found (earlier tests may leave v2 selected; that is theirs to keep)
+        found = (dict(sp._CLASSIFIER), sp.START_FALLBACK_CLASSIFIER, dict(sp.CLASSIFIERS), dict(sp.POLICY),
+                 sp.START_SELF_CHECK)
+
+        def restore():
+            sp._CLASSIFIER.clear(); sp._CLASSIFIER.update(found[0])
+            sp.START_FALLBACK_CLASSIFIER = found[1]
+            sp.START_SELF_CHECK = found[4]
+            sp.CLASSIFIERS.clear(); sp.CLASSIFIERS.update(found[2])
+            sp.POLICY.clear(); sp.POLICY.update(found[3])
+            for name in [n for n in sys.modules if n.startswith('fake_fallback_')]:
+                del sys.modules[name]
+        self.addCleanup(restore)
+        sp.set_classifier('v3')
+
+    def register(self, key, mod):
+        sys.modules[mod.__name__] = mod
+        sp.CLASSIFIERS[key] = mod.__name__
+        return mod
+
+    def test_off_by_default_and_a_v3_refusal_stays_a_refusal(self):
+        spec = importlib.util.spec_from_file_location('screen_pipeline_fresh_fb', SP_PATH)
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIsNone(fresh.START_FALLBACK_CLASSIFIER)
+        self.assertNotIn('startFallback', fresh.policy())
+        sp.set_start_fallback(None)
+        tracker = sp.GameTracker(START, self.bridge)
+        rec = tracker.start(0, self.flat[(START, True)], det_for(QUAD))
+        self.assertEqual((rec['status'], rec['cause']), ('start-rejected', '0-rotations-calibrated'))
+        self.assertEqual(set(rec), {'index', 'stage', 'detector', 'timingsMs', 'rotationsTried', 'status', 'cause',
+                                    'trackedFen'})  # the record layout of the committed code: nothing new when off
+        self.assertFalse(tracker.started)
+        rec = tracker.start(0, self.classic_start, det_for(QUAD))  # off: an accepted start has no new fields either
+        self.assertEqual(rec['status'], 'start-accepted')
+        self.assertNotIn('startReader', rec)
+        self.assertNotIn('reader', tracker.step(1, self.classic_e4, det_for(QUAD)))
+
+    def test_v3_accepts_and_the_fallback_is_never_asked(self):
+        spy = self.register('vspy', fake_reader('fake_fallback_spy', lambda m: {'fake': True}))  # records any call
+        sp.set_start_fallback('vspy')
+        rec = sp.GameTracker(START, self.bridge).start(0, self.classic_start, det_for(QUAD))
+        self.assertEqual((rec['status'], rec['startReader'], rec['startFallback']), ('start-accepted', 'v3', 'not-needed'))
+        self.assertEqual(spy.calls, [])
+        sp.set_start_fallback('v4')
+        tracker = sp.GameTracker(START, self.bridge)
+        rec = tracker.start(0, self.classic_start, det_for(QUAD))
+        self.assertEqual((rec['startReader'], rec['startFallback']), ('v3', 'not-needed'))
+        self.assertNotIn('fallbackRotationsTried', rec)
+        with agree(2):
+            recs = [tracker.step(i, self.classic_e4, det_for(QUAD)) for i in (1, 2)]
+        self.assertEqual(recs[1]['acceptedMove'], 'e2e4')
+        self.assertEqual([r['reader'] for r in recs], ['v3', 'v3'])
+        self.assertIsNone(tracker.reader_module)
+        self.assertEqual(set(tracker.cache), {1, 2})  # default reader: the cache keys of the committed code
+
+    def test_v3_refuses_v4_accepts_and_v4_reads_the_rest_of_the_game(self):
+        sp.set_start_fallback('v4')
+        for wb, rotation in ((True, 0), (False, 2)):
+            tracker = sp.GameTracker(START, self.bridge)
+            rec = tracker.start(0, self.flat[(START, wb)], det_for(QUAD))
+            self.assertEqual((rec['status'], rec['startReader'], rec['startFallback'], rec['rotation']),
+                             ('start-accepted', 'v4', 'accepted', rotation))
+            self.assertEqual([t['calibrated'] for t in rec['rotationsTried']], [False] * 4)  # v3.1 refused
+            self.assertEqual(sum(t['calibrated'] for t in rec['fallbackRotationsTried']), 1)
+            self.assertIs(tracker.reader_module, sys.modules[sp.CLASSIFIERS['v4']])
+            with agree(2):
+                recs = [tracker.step(i, self.flat[(AFTER_E4, wb)], det_for(QUAD)) for i in (1, 2)]
+            self.assertEqual([r['status'] for r in recs], ['pending', 'accepted'])
+            self.assertEqual(recs[1]['acceptedMove'], 'e2e4')
+            self.assertEqual([r['reader'] for r in recs], ['v4', 'v4'])
+            self.assertEqual(set(tracker.cache), {('v4', 1), ('v4', 2)})  # never mixed with the default's readings
+            tracker.human_rereview(AFTER_E4)  # a re-review keeps the start's reader and calibration
+            self.assertEqual(tracker.step(3, self.flat[(AFTER_E4, wb)], det_for(QUAD))['reader'], 'v4')
+        self.assertEqual(sp._CLASSIFIER['name'], 'v3')  # the global default reader is untouched
+        doc = sp.policy()
+        self.assertEqual(doc['startFallback']['classifierName'], 'v4')
+
+    def test_v3_and_v4_both_refuse_is_a_refusal(self):
+        sp.set_start_fallback('v4')
+        for picture in (self.classic_start, self.flat[(START, True)]):  # the screen shows the start, e4 is claimed
+            tracker = sp.GameTracker(AFTER_E4, self.bridge)
+            rec = tracker.start(0, picture, det_for(QUAD))
+            self.assertEqual((rec['status'], rec['startFallback'], rec['cause']),
+                             ('start-rejected', 'refused', '0-rotations-calibrated'))
+            self.assertNotIn('startReader', rec)
+            self.assertFalse(tracker.started)
+            self.assertEqual(tracker.step(1, picture, det_for(QUAD))['cause'], 'no-start')
+
+    def test_ambiguous_orientation_is_never_handed_to_the_fallback(self):
+        self.register('vall', fake_reader('fake_fallback_all', lambda m: {'fake': True}))  # fits every orientation
+        spy = self.register('vspy', fake_reader('fake_fallback_spy2', lambda m: {'fake': True}))
+        sp.set_classifier('vall')
+        sp.set_start_fallback('vspy')
+        rec = sp.GameTracker(START, self.bridge).start(0, self.classic_start, det_for(QUAD))
+        self.assertEqual((rec['status'], rec['cause'], rec['startFallback']),
+                         ('start-rejected', '4-rotations-calibrated', 'not-tried'))
+        self.assertEqual(spy.calls, [])
+
+    def test_setting_is_validated_and_read_once_per_game(self):
+        self.assertIsNone(sp.set_start_fallback('v4'))
+        with self.assertRaises(SystemExit):
+            sp.set_start_fallback('v9')
+        self.assertEqual(sp.START_FALLBACK_CLASSIFIER, 'v4')  # a failed set changes nothing
+        tracker = sp.GameTracker(START, self.bridge)
+        self.assertEqual(sp.set_start_fallback(None), 'v4')
+        rec = tracker.start(0, self.flat[(START, True)], det_for(QUAD))  # the game keeps the setting it began with
+        self.assertEqual(rec['startReader'], 'v4')
+
+    def not_the_start_flat(self):
+        """Three solid-piece pictures that are NOT the start, built the way the v4.3 review's attack_start.py builds
+        them: v4.3's start check alone accepts each (v3.1 refuses each), its own reading of the picture does not."""
+        import make_screen_game_scenes as gen
+
+        def xy(sq):
+            return 'abcdefgh'.index(sq[0]) * 64, (8 - int(sq[1])) * 64
+
+        def is_dark(sq):
+            return ('abcdefgh'.index(sq[0]) + 8 - int(sq[1])) % 2 == 1
+
+        def board(hide=None):
+            return np.asarray(gen.stress_board(START, True, {'style': 'flat', 'hide': hide} if hide else
+                                               {'style': 'flat'}), float)
+
+        def sprite(b, label, sq, dx=0, dy=0):
+            rgb, a = gen.sprite(label, is_dark(sq), 'flat')
+            x, y = xy(sq)
+            blk = b[y + dy:y + dy + 64, x + dx:x + dx + 64]
+            a = a[:blk.shape[0], :blk.shape[1], None]
+            blk[:] = blk * (1 - a) + rgb[:blk.shape[0], :blk.shape[1]] * a
+        shifted = board('e2')
+        sprite(shifted, 'P', 'e2', 0, -10)  # the e2 pawn drawn 10 px up, off its square (a move being animated)
+        shape = board('e2')
+        x, y = xy('e2')
+        shape[y + 12:y + 53, x + 18:x + 47] = (250, 250, 247)  # e2 empty, a piece-coloured box on it
+        layered = board()
+        sprite(layered, 'p', 'd5')  # an extra black pawn on d5 under a 90 % layer in the square's own colour
+        x, y = xy('d5')
+        light, dark = gen.THEMES['classic']
+        layered[y:y + 64, x:x + 64] = layered[y:y + 64, x:x + 64] * 0.1 + np.array(dark if is_dark('d5') else light) * 0.9
+        return {'piece off its square': shifted, 'shape on an empty start square': shape,
+                'extra piece under a layer': layered}
+
+    def test_fallback_self_check_refuses_pictures_that_are_not_the_start(self):
+        sp.set_start_fallback('v4')
+        for name, b in self.not_the_start_flat().items():
+            tracker = sp.GameTracker(START, self.bridge)
+            rec = tracker.start(0, warp_board(b), det_for(QUAD))
+            self.assertEqual([t['calibrated'] for t in rec['rotationsTried']], [False] * 4, name)  # v3.1 refused
+            self.assertEqual(sum(t['calibrated'] for t in rec['fallbackRotationsTried']), 1, name)  # v4.3 calibrated
+            self.assertEqual((rec['status'], rec['startFallback']), ('start-rejected', 'refused-self-check'), name)
+            self.assertFalse(rec['fallbackSelfCheck']['passed'], name)
+            self.assertGreaterEqual(rec['fallbackSelfCheck']['squaresNotAsStated'], 1, name)
+            self.assertFalse(tracker.started, name)
+            self.assertNotIn('startReader', rec)
+
+    def test_real_solid_piece_starts_still_come_through_the_self_check(self):
+        root = Path('/Users/alexmunzon/chess-builds/pipeline-2026-11-15/scenes-stress')
+        if not (root / 'truth/games.json').exists() or not sp.DEFAULT_DETECTOR.exists():
+            self.skipTest('scenes-stress or the corner detector not present')
+        sp.set_start_fallback('v4')
+        games = [g for g in sp.load_games(root)['games'] if g['id'].startswith('stressdev-style-flat-')]
+        self.assertEqual(len(games), 3)
+        for g in games:
+            starts = [f for f in g['frames'] if ev.position_of(f) == 0]
+            dets = sp.run_detector([root / f['file'] for f in starts])
+            tracker = sp.GameTracker(g['startFen'], self.bridge)
+            recs = [tracker.start(f['index'], sp.load_image(root / f['file'])[0], dets[str(root / f['file'])])
+                    for f in starts[:1]]
+            self.assertEqual((recs[0]['status'], recs[0]['startReader']), ('start-accepted', 'v4'), g['id'])
+            self.assertTrue(recs[0]['fallbackSelfCheck']['passed'], g['id'])
+
+    def test_scorer_reports_which_reader_accepted_the_start(self):
+        game = multi_game([(START, None, 1), (AFTER_E4, 'e2e4', 2)])
+        scenes = Path('/nonexistent')
+        dets = {str(scenes / f['file']): det_for(QUAD) for f in game['frames']}
+        pics = {0: self.flat[(START, True)], 1: self.flat[(AFTER_E4, True)], 2: self.flat[(AFTER_E4, True)]}
+        sp.set_start_fallback(None)
+        with agree(2):
+            _, summ, _ = ev.run_mode('strict', scenes, game, dets, self.bridge, {}, lambda f: pics[f['index']])
+        self.assertFalse(summ['startAccepted'])
+        self.assertNotIn('startReader', summ)
+        sp.set_start_fallback('v4')
+        with agree(2):
+            recs, summ, pos = ev.run_mode('strict', scenes, game, dets, self.bridge, {}, lambda f: pics[f['index']])
+        self.assertEqual((summ['startAccepted'], summ['startReader'], summ['wrongAccepted']), (True, 'v4', 0))
+        self.assertEqual(recs[-1]['acceptedMove'], 'e2e4')
+        head = ev.summarise('agree2/strict', [(game, recs)], [summ], [(game, pos)], scenes, Path('/nonexistent'),
+                            [], [], {})
+        self.assertEqual((head['startsViaFallback'], head['startsByReader']), (1, {'v4': 1}))
+
+
+class StartSelfCheckTests(unittest.TestCase):
+    """The default reader's start self-check (START_SELF_CHECK, off by default). Classic pictures that are NOT the start,
+    built the way the v4.3 review's attack_start.py builds them, which v3.1's start check alone accepts."""
+
+    @classmethod
+    def setUpClass(cls):
+        import make_screen_game_scenes as gen  # generator drawing only, never used by a reader
+        cls.bridge = sp.InferBridge()
+        cls.classic_start = screen_frame(START)
+        cls.classic_e4 = screen_frame(AFTER_E4)
+        cls.black_start = screen_frame(START, black_at_bottom=True)
+
+        def xy(sq):
+            return 'abcdefgh'.index(sq[0]) * 64, (8 - int(sq[1])) * 64
+
+        def is_dark(sq):
+            return ('abcdefgh'.index(sq[0]) + 8 - int(sq[1])) % 2 == 1
+
+        def board(hide=None):
+            return np.asarray(gen.stress_board(START, True, {'hide': hide} if hide else {}), float)
+
+        def shifted(dy):  # the e2 pawn drawn dy px up, partly off its square (the first move being animated)
+            b = board('e2')
+            rgb, a = gen.sprite('P', is_dark('e2'), 'classic')
+            x, y = xy('e2')
+            blk = b[y - dy:y - dy + 64, x:x + 64]
+            blk[:] = blk * (1 - a[..., None]) + rgb * a[..., None]
+            return warp_board(b)
+        # measured on the review's attack pictures: v3.1's start check alone accepts these, its self-check refuses them
+        cls.doctored = {f'e2 pawn {dy} px off its square': shifted(dy) for dy in (6, 14)}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.bridge.close()
+
+    def setUp(self):
+        found = (dict(sp._CLASSIFIER), sp.START_FALLBACK_CLASSIFIER, dict(sp.CLASSIFIERS), sp.START_SELF_CHECK)
+
+        def restore():
+            sp._CLASSIFIER.clear(); sp._CLASSIFIER.update(found[0])
+            sp.START_FALLBACK_CLASSIFIER = found[1]
+            sp.CLASSIFIERS.clear(); sp.CLASSIFIERS.update(found[2])
+            sp.START_SELF_CHECK = found[3]
+            for name in [n for n in sys.modules if n.startswith('fake_fallback_')]:
+                del sys.modules[name]
+        self.addCleanup(restore)
+        sp.set_classifier('v3')
+        sp.set_start_fallback(None)
+
+    def test_off_by_default_and_nothing_changes(self):
+        spec = importlib.util.spec_from_file_location('screen_pipeline_fresh_sc', SP_PATH)
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)
+        self.assertIs(fresh.START_SELF_CHECK, False)
+        self.assertNotIn('startSelfCheck', fresh.policy())
+        off_hash = sp.policy()['sha256']
+        self.assertIs(sp.set_start_self_check(True), False)
+        self.assertIn('startSelfCheck', sp.policy())
+        self.assertNotEqual(sp.policy()['sha256'], off_hash)
+        self.assertIs(sp.set_start_self_check(False), True)
+        self.assertEqual(sp.policy()['sha256'], off_hash)  # off again: the policy hash of the code before the option
+        rec = sp.GameTracker(START, self.bridge).start(0, self.classic_start, det_for(QUAD))
+        self.assertEqual(rec['status'], 'start-accepted')
+        self.assertEqual(set(rec), {'index', 'stage', 'detector', 'timingsMs', 'rotationsTried', 'status', 'rotation',
+                                    'trackedFen', 'currentConfirmed', 'startLabel'})  # the record layout before the option
+        for name, picture in self.doctored.items():  # off: the plain start check accepts these pictures
+            rec = sp.GameTracker(START, self.bridge).start(0, picture, det_for(QUAD))
+            self.assertEqual(rec['status'], 'start-accepted', name)
+            self.assertNotIn('startSelfCheck', rec)
+
+    def test_on_refuses_doctored_starts_the_plain_check_accepts(self):
+        sp.set_start_self_check(True)
+        for name, picture in self.doctored.items():
+            tracker = sp.GameTracker(START, self.bridge)
+            rec = tracker.start(0, picture, det_for(QUAD))
+            self.assertEqual(sum(t['calibrated'] for t in rec['rotationsTried']), 1, name)  # v3.1 calibrated
+            self.assertEqual((rec['status'], rec['cause']), ('start-rejected', 'start-self-check-failed'), name)
+            self.assertFalse(rec['startSelfCheck']['passed'], name)
+            self.assertGreaterEqual(rec['startSelfCheck']['squaresNotAsStated'], 1, name)
+            self.assertFalse(tracker.started, name)
+            self.assertEqual(tracker.step(1, self.classic_e4, det_for(QUAD))['cause'], 'no-start', name)
+
+    def test_on_still_accepts_a_clean_start_and_tracks_the_game(self):
+        sp.set_start_self_check(True)
+        for picture, rotation in ((self.classic_start, 0), (self.black_start, 2)):
+            rec = sp.GameTracker(START, self.bridge).start(0, picture, det_for(QUAD))
+            self.assertEqual((rec['status'], rec['rotation']), ('start-accepted', rotation))
+            self.assertEqual((rec['startSelfCheck']['passed'], rec['startSelfCheck']['squaresNotAsStated']), (True, 0))
+        tracker = sp.GameTracker(START, self.bridge)
+        tracker.start(0, self.classic_start, det_for(QUAD))
+        with agree(2):
+            recs = [tracker.step(i, self.classic_e4, det_for(QUAD)) for i in (1, 2)]
+        self.assertEqual(recs[1]['acceptedMove'], 'e2e4')
+
+    def test_a_refused_start_is_not_handed_to_the_fallback(self):
+        spy = sys.modules.setdefault('fake_fallback_sc_spy', fake_reader('fake_fallback_sc_spy', lambda m: {'fake': True}))
+        sp.CLASSIFIERS['vspy'] = spy.__name__
+        sp.set_start_fallback('vspy')
+        sp.set_start_self_check(True)
+        rec = sp.GameTracker(START, self.bridge).start(0, self.doctored['e2 pawn 6 px off its square'], det_for(QUAD))
+        self.assertEqual((rec['status'], rec['cause'], rec['startFallback']),
+                         ('start-rejected', 'start-self-check-failed', 'not-tried'))
+        self.assertEqual(spy.calls, [])
+
+    def test_setting_is_read_once_per_game(self):
+        sp.set_start_self_check(True)
+        tracker = sp.GameTracker(START, self.bridge)
+        sp.set_start_self_check(False)
+        rec = tracker.start(0, self.doctored['e2 pawn 6 px off its square'], det_for(QUAD))
+        self.assertEqual(rec['cause'], 'start-self-check-failed')  # the game keeps the setting it began with
 
 
 if __name__ == '__main__':

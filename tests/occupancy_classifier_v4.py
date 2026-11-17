@@ -844,5 +844,179 @@ class ThirdReviewCases(unittest.TestCase):
         self.assertLessEqual(max_move, MOVE_CAP)
 
 
+# =========================================================== Part 5: rules no earlier test protected ====
+def drawn(fen, seed=0, style='flat', highlight=None, highlight_colour=None, edit=None):
+    """Stress board with an optional site highlight of a chosen (colour, opacity) under the pieces, then `edit(b)`
+    paints over the 512x512 board area (board pixels, white at the bottom); same light degradation as board()."""
+    old = gen.HIGHLIGHT.copy(), gen.HIGHLIGHT_ALPHA
+    if highlight_colour is not None:
+        gen.HIGHLIGHT[:], gen.HIGHLIGHT_ALPHA = highlight_colour
+    try:
+        b = gen.stress_board(fen, True, dict(style=style, highlight=highlight)).astype(float)
+    finally:
+        gen.HIGHLIGHT[:], gen.HIGHLIGHT_ALPHA = old
+    if edit:
+        edit(b)
+    panel = np.full((640, 640, 3), 128.0)
+    panel[64:576, 64:576] = np.clip(b, 0, 255)
+    img = Image.fromarray(panel.astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.6))
+    a = np.asarray(img, float) + np.random.default_rng(seed).normal(0, 2, (640, 640, 3))
+    return Image.fromarray(np.clip(a, 0, 255).round().astype(np.uint8))
+
+
+def box(square, rgb, rows=(0, 64), cols=(0, 64), alpha=1.0):
+    """edit for drawn(): a box of colour rgb over tile rows/cols of a square (alpha 1 = opaque)."""
+    def edit(b):
+        x, y = board_xy(square)
+        blk = b[y + rows[0]:y + rows[1], x + cols[0]:x + cols[1]]
+        blk[:] = blk * (1 - alpha) + np.asarray(rgb, float) * alpha
+    return edit
+
+
+def scaled_sprite(label, style, scale):
+    """The generator's sprite scaled about its bottom centre (a drag image drawn larger, or a piece set of another
+    size), as (rgb, alpha) on a 64x64 tile."""
+    rgb, a = gen.sprite(label, False, style)
+    bottom = int(np.flatnonzero(a.max(axis=1) > 0.5)[-1])
+    n = int(round(64 * scale))
+    im = Image.fromarray(np.dstack([rgb, a * 255]).clip(0, 255).astype(np.uint8), 'RGBA').resize(
+        (n, n), Image.Resampling.LANCZOS)
+    out = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+    out.paste(im, (int(round(32 - 32 * scale)), int(round(bottom - bottom * scale))), im)
+    o = np.asarray(out, float)
+    return o[..., :3], o[..., 3] / 255
+
+
+class UnprotectedRuleCases(unittest.TestCase):
+    """A mutation check of v4.3 (review 2026-11-16) removed one rule at a time; 9 of 24 removals passed every earlier
+    test. Each test here shows the situation one of those rules exists for: it passes on v4.3 and fails with that rule
+    removed (the mutant named in the docstring). Truth is the game position under whatever is drawn over the board."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cals = {style: oc.calibrate(board(START, style=style), oc.occupancy_from_fen(START))
+                    for style in ('classic', 'flat')}
+
+    def test_highlight_colour_near_black_does_not_hide_a_black_piece(self):
+        """Rule E on a tinted square (mutant M04): a site whose last-move highlight is an opaque dark purple (70, 50,
+        100), 68 RGB from the black fill, marks d2 under a white pawn; a box of exactly that colour hides the black e5
+        pawn (both dark squares). The pair is consistent and reads one piece + one empty, and the tint is more than
+        TINT_MIN_FILL_DIST from both fills, so only E (a black piece would be within 0.6x its start contrast of this
+        background) keeps e5 from reading empty."""
+        fen = AFTER['Nf3']
+        rgb = (70, 50, 100)
+        result = oc.classify(drawn(fen, 21, 'flat', ['d2'], (rgb, 1.0), box('e5', rgb)), self.cals['flat'])
+        self.assertEqual(wrong_squares(result, fen), {})
+        self.assertNotEqual(result['e5']['label'], 'empty', result['e5'])
+
+    def test_highlight_colour_near_white_does_not_hide_a_white_piece(self):
+        """Tint far from the piece colours (mutant M13): an opaque pale pink highlight (255, 200, 245), 50 RGB from the
+        white fill, marks a black piece (e8 king, d7 pawn); a box of that colour hides a white piece on another light
+        square (e4 pawn, b1 knight). 50 RGB is beyond rule E's reach on light squares (0.6 x the white fill's 75 RGB
+        start gap = 45), so only TINT_MIN_FILL_DIST (60 RGB) refuses this tint and keeps the box from reading empty."""
+        fen = AFTER['Nf3']
+        rgb = (255, 200, 245)
+        for marked, boxed in (('e8', 'e4'), ('d7', 'b1')):
+            result = oc.classify(drawn(fen, 21, 'flat', [marked], (rgb, 1.0), box(boxed, rgb)), self.cals['flat'])
+            self.assertEqual(wrong_squares(result, fen), {}, (marked, boxed))
+            self.assertNotEqual(result[boxed]['label'], 'empty', (boxed, result[boxed]))
+
+    def test_highlight_that_makes_a_light_square_look_dark(self):
+        """Tint far from the other square colour (mutant M17): a 60 % green highlight (18, 134, 62) under the f3 knight
+        turns that light square into (103, 167, 110), 35 RGB from the dark-square colour. A box in the colour the same
+        highlight gives a dark square, (52, 133, 77), hides the e5 pawn or the d2 pawn. The pair passes the
+        one-overlay check (light + dark, opacity 0.6), the box colour is outside rule E's reach, so only
+        TINT_MIN_OTHER_DIST refuses the pair and keeps the boxed square from reading empty."""
+        fen = AFTER['Nf3']
+        green = np.array([18.0, 134.0, 62.0])
+        boxed_colour = 0.4 * np.array(gen.THEMES['classic'][1], float) + 0.6 * green
+        for style in ('flat', 'classic'):
+            for boxed in ('e5', 'd2'):
+                panel = drawn(fen, 21, style, ['f3'], (green, 0.6), box(boxed, boxed_colour))
+                result = oc.classify(panel, self.cals[style])
+                self.assertEqual(wrong_squares(result, fen), {}, (style, boxed))
+                self.assertNotEqual(result[boxed]['label'], 'empty', (style, boxed, result[boxed]))
+
+    def test_see_through_piece_held_over_a_piece_of_the_other_colour(self):
+        """Base colour mix (mutant M08): a black knight or rook drawn at 90 % opacity (a drag image) 3 px above the
+        white pawns on c2 and e4. The white pawn's base shows under the black body; the see-through black pixels are
+        still nearer the black fill, so the two-colours rule stays below its margin, and the base row, centre and
+        width match a standing piece. Only the base's white/black mix, unlike the start's black pieces, shows that
+        the black piece is not what stands there."""
+        fen = AFTER['Nf3']
+        for label in ('n', 'r'):
+            for square in ('c2', 'e4'):
+                x, y = board_xy(square)
+                result = oc.classify(custom(fen, 1, 'flat', 'f3', [(label, x, y - 3, 0.9)]), self.cals['flat'])
+                self.assertIn(result[square]['label'], ('white', 'unknown'), (label, square, result[square]))
+
+    def test_piece_pixels_below_the_base_row(self):
+        """No piece pixels below the base row (mutant M19): two pieces drawn into one empty square in a mid-move
+        picture, the upper one's base exactly on the base line and the lower one 12-20 px further down, its head showing
+        below that base (and its own base hidden in the square below). Base row, centre, width, size, contrast and
+        colours all match a standing piece; only the narrow piece pixels below the base row show that nothing stands
+        there."""
+        fen = AFTER['Nf3']
+        for style, upper, lower, square, dy in (('flat', 'N', 'P', 'd5', 20), ('flat', 'q', 'p', 'c4', 20),
+                                                ('classic', 'N', 'p', 'd5', 12)):
+            x, y = board_xy(square)
+            panel = custom(fen, 1, style, 'f3', [(lower, x, y + dy, 1.0), (upper, x, y, 1.0)])
+            result = oc.classify(panel, self.cals[style])
+            self.assertIn(result[square]['label'], ('empty', 'unknown'), (style, upper, lower, square, result[square]))
+
+    def test_near_board_coloured_layer_over_a_square_middle(self):
+        """Rule F (mutant M05): a 97 % opaque banner 24 RGB from the light-square colour (outside the documented
+        15-16 RGB limit) over rows 7-56 of e4 (white pawn) and f3 (white knight) on a classic board. The top and bottom
+        ring rows stay bare and outnumber the side-strip rows, so rule G's bare-board move stays near zero and the
+        hidden piece leaves the window clear; only F (the square's lit colour moved as far as a layer able to wash out
+        a start piece would move it) keeps these squares from reading empty."""
+        fen = AFTER['Nf3']
+        light = np.array(gen.THEMES['classic'][0], float)
+        for sq in ('e4', 'f3'):
+            panel = drawn(fen, 3, 'classic', edit=box(sq, np.clip(light + 14, 0, 255), rows=(7, 57), alpha=0.97))
+            result = oc.classify(panel, self.cals['classic'])
+            self.assertEqual(wrong_squares(result, fen), {}, sq)
+            self.assertNotEqual(result[sq]['label'], 'empty', (sq, result[sq]))
+
+    def test_enlarged_drag_image_over_an_empty_square_is_not_a_piece(self):
+        """Rule D size (mutant M10): sites draw the dragged piece enlarged. A knight drawn 1.25x, its base exactly on
+        the base line of an empty square (classic board), stands on the start base row, centred and wide enough, so
+        only its size (more than 1.35x the largest start piece of its kind) shows it is not a piece standing there."""
+        fen = AFTER['Nf3']
+        for label, square in (('N', 'e3'), ('N', 'd4'), ('n', 'd5'), ('n', 'c3')):
+            rgb, a = scaled_sprite(label, 'classic', 1.25)
+
+            def edit(b, square=square):
+                x, y = board_xy(square)
+                b[y:y + 64, x:x + 64] = b[y:y + 64, x:x + 64] * (1 - a[..., None]) + rgb * a[..., None]
+            result = oc.classify(drawn(fen, 1, 'classic', edit=edit), self.cals['classic'])
+            self.assertIn(result[square]['label'], ('empty', 'unknown'), (label, square, result[square]))
+
+    def test_box_covering_a_square_edge_to_edge_is_not_a_piece(self):
+        """Two occupancy cues must agree (mutant M24): an opaque box in a piece-fill colour over an empty square from
+        tile column 6 to 57 (its sides lie outside the edge window) is all foreground but shows no vertical edge.
+        The colour cue says piece, the edge cue says empty; with only the colour cue the box reads as a piece."""
+        fen = AFTER['Nf3']
+        for square, rgb in (('d5', WHITE_FILL), ('d4', BLACK_FILL), ('c3', BLACK_FILL)):
+            panel = drawn(fen, 2, 'flat', edit=box(square, rgb, rows=(8, 59), cols=(6, 58)))
+            result = oc.classify(panel, self.cals['flat'])
+            self.assertEqual(wrong_squares(result, fen), {}, (square, rgb))
+            self.assertIn(result[square]['label'], ('empty', 'unknown'), (square, rgb, result[square]))
+
+    @unittest.expectedFailure
+    def test_fill_coloured_box_standing_on_an_empty_square_KNOWN_WRONG(self):
+        """KNOWN WRONG SQUARE in v4.3 (found 2026-11-17 while writing the M24 test; not fixed, the module is frozen).
+        On a flat-style board, an opaque box in the white or black fill colour standing where a piece's base would be
+        (tile columns 9-54, rows 8-58) on an empty square is read as a confident white or black piece. Its sides give
+        the edge cue, it stands on the base row, and its size passes because 1.35x the largest flat start piece is
+        more than the whole window, so rule D's 'large occluder is unknown' cannot fire on flat boards."""
+        fen = AFTER['Nf3']
+        for square, rgb in (('d5', WHITE_FILL), ('d4', BLACK_FILL)):
+            panel = drawn(fen, 2, 'flat', edit=box(square, rgb, rows=(8, 59), cols=(9, 55)))
+            result = oc.classify(panel, self.cals['flat'])
+            self.assertIn(result[square]['label'], ('empty', 'unknown'),
+                          f'KNOWN WRONG SQUARE: box on empty {square} read as {result[square]["label"]}')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -126,10 +126,47 @@ When the engine is pre-started:
 - Replay: when a complete frame needs review, when all five boxes are ticked, and when a review starts tracking.
 - Never before the engine runs, never for a board with unknown squares, and never while a request of the same mode is in flight (the runtime runs one request at a time).
 
-When the spare engine is dropped: un-ticking a review box, choosing another position or game, reset, backgrounding and leaving Replay (the last four also close the runtime, which ends every engine). The spare only ever searches a fixed warm-up position; its result is thrown away, and an analysis accepts a `bestmove` only if it matches this search's own principal variation. A failing pre-start is silent: the analysis starts a fresh engine as before.
+When the spare engine is dropped: un-ticking a review box, choosing another position or game, reset, backgrounding and leaving Replay (the last four also close the runtime, which ends every engine). Exception for un-ticking (2026-11-17): if another request is pending at that moment, the runtime refuses the cancel as busy and the app ignores the refusal; see the busy rule below. The spare only ever searches a fixed warm-up position; its result is thrown away, and an analysis accepts a `bestmove` only if it matches this search's own principal variation. A failing pre-start is silent: the analysis starts a fresh engine as before.
 
 Analysis replies now carry diagnostic search facts (`search`: nodes, nodes per second, search time, start-up path `fresh`/`spare`/`fallback`, start-up wait). They are never used to decide advice; the Swift adapter accepts replies with or without them and checks the key set exactly when present.
 
 Self-test (`--chess-self-test`): every analysis logs nodes, nodes per second, search time and start-up path, and the report has an `engineSearch` section. New checks: `prewarm-spare-serves-reviewed-position`, `untick-review-discards-spare`, `runtime-allowlist-refuses-unknown-asset-and-kind`, `replay-switch-game-during-analysis-real-engine` and `every-analysis-searched-node-budget-with-speed-reported` (30 checks in all). The three existing in-flight checks (study switch, replay advance, special-game occlusion) used to wait a fixed 200 ms after "Analyze"; a 100,000-node search on a pre-started engine can finish inside that, so they now wait until the analysis request has been sent, then 30 ms, and they fail if the request was never sent or had already been answered.
 
-Follow-up after review (same day): the runtime has one pending-request slot shared by engine and Replay tracker requests, and a new request normally cancels the pending one. A delayed pre-start could therefore cancel a tracker request (failing safe, but revoking tracking). `NativeEngineRuntime.submit` now refuses a `prewarm`/`cancelPrewarm` while any other request is pending (`mayReplace`); real requests still supersede as before. Checks: `native/ChessCompanionIntegration/RuntimeGuardChecks.swift` (macOS, compiled with `NativeEngineRuntime.swift`, construction only, no WebKit execution; takes a runtime bundle directory), and a live case in the self-test check `runtime-allowlist-refuses-unknown-asset-and-kind` (a prewarm sent while a real analysis is pending is refused and the analysis is not cancelled).
+Follow-up after review (same day): the runtime has one pending-request slot shared by engine and Replay tracker requests, and a new request normally cancels the pending one. A delayed pre-start could therefore cancel a tracker request (failing safe, but revoking tracking). `NativeEngineRuntime.submit` now refuses a `prewarm`/`cancelPrewarm` while any other request is pending (`mayReplace`); real requests still supersede as before. Checks: `native/ChessCompanionIntegration/RuntimeGuardChecks.swift` (macOS, compiled with `NativeEngineRuntime.swift`; takes a runtime bundle directory), and a live case in the self-test check `runtime-allowlist-refuses-unknown-asset-and-kind` (a prewarm sent while a real analysis is pending is refused and the analysis is not cancelled).
+
+Follow-up, 2026-11-17: `RuntimeGuardChecks` now also drives the real `submit` in a headless macOS WKWebView with the built bundle: a `prewarm` or `cancelPrewarm` sent while a real analysis or a well-formed Replay tracker request is pending must be refused as busy while the held request still gets its normal reply; with nothing pending both are accepted. A second runtime with the occupancy setting on checks the occupancy slot: a second tracker request while one is pending is refused as busy, tracker requests never cancel a pending analysis, and a stop supersedes a pending reading. 15 checks in all; 12 of 12 review mutants of `NativeEngineRuntime.swift` fail it (with the guard line removed: 11 of 15). Evidence: `/Users/alexmunzon/chess-builds/engine-leftovers-2026-11-17/` and `round2/`. It runs in `/Users/alexmunzon/chess-builds/special-replay-2026-11-15/mocks/run-all.sh`. Busy rule: `cancelPrewarm` stays refused while another request is pending, on purpose, because letting it through would go via `DeviceBackend.handle`, which cancels the running job first. What is left behind depends on what is pending. A pending analysis has already taken the spare, so nothing is left. A pending Replay tracker (or `position`/`move`) request has not, so a ready spare survives until the 60 s idle age, shutdown or the next analysis takes it (at most about 70 s). It holds no position and no advice comes back: an analysis still needs a confirmed, reviewed position and searches that position itself. The self-test case above now passes only when the held analysis replies; a timeout is recorded as `timed-out` with a message and is not a pass.
+
+## Occupancy tracker plumbing, OFF by default — November 16, 2026
+
+The bundled runtime now also carries the occupancy move tracker (`src/core/occupancy-tracker.js` and
+`src/core/occupancy-move-inference.js`, copied unmodified; 18 runtime assets). It is **off by default** and the app has **no picture
+source**: no camera, glasses or other feed produces board readings, so nothing in the app sends the tracker anything, and the
+tracker never gives or keeps advice. Details and the open requirements: `docs/OCCUPANCY_TRACKER.md`, section "Wiring".
+
+- Setting: the app keeps no stored settings, so it is a launch argument, `--occupancy-tracker-on`, read once per launch
+  (`TrackerSetting.swift`) and passed to `NativeEngineRuntime(resourceDirectory:occupancyTracker:)`. Without it every tracker
+  request (`trackerStart`, `trackerIngest`, `trackerSnapshot`, `trackerStop`, and since 2026-11-17 `trackerAnswerPromotion`) is refused with "Occupancy tracker disabled." and the
+  app behaves as before. Nothing in the app sends tracker requests except the self-test; interruption handling (sending
+  `trackerStop` on background, edit or reset) is a requirement for whoever connects a picture source.
+- Tracker requests use their own pending slot in `NativeEngineRuntime`; they never cancel or delay an engine or Replay request,
+  and the engine slot's rules (`engineKinds`, `trackerKinds`, `mayReplace`) are unchanged. Any tracker request that fails on the
+  Swift side (busy, timed out, cancelled) revokes the page's tracker; `trackerStop` is never refused.
+- Still open: hole (c) (the moving piece itself exchanged or replaced) and an exchange between two pictures with nothing hidden;
+  occupancy alone cannot see either. Every requirement that needs a real picture source (one monotonic clock, 6 pictures per
+  second, covered squares read unknown, polling every 100 ms and hiding advice older than 250 ms) is untested.
+- Self-test: three new checks run after the special game: `occupancy-tracker-off-refuses-every-request` (through the app's own `LocalOfflineBackend`, setting as
+  launched, so a hardcoded `true` in `AppAdapters.swift` fails it), `occupancy-tracker-on-honest-move-trusted` and `occupancy-tracker-on-hidden-swap-revoked` (a separate runtime created
+  with the setting on; scripted SYNTHETIC readings; a real 100,000-node analysis is pending during the honest-move requests and must
+  still reply). 33 checks in all.
+- Promotion answer (2026-11-17): `trackerAnswerPromotion` carries the person's choice of piece when a pawn promotes (occupancy
+  cannot see it). Same gates as the other kinds; a malformed or unknown-piece answer revokes; a late answer (after a stop, a new
+  start or a newer reading) changes nothing; a different piece for an already answered question revokes; question ids carry
+  a random per-page part, so an answer from before a reload never matches; an accepted answer still needs fresh readings before the tracker is ready. New
+  self-test check `occupancy-tracker-on-honest-promotion-trusted` (34 checks in all; the setting-off check now also covers `trackerAnswerPromotion`): compiled, not yet run on the Simulator or phone.
+- Results (Simulator `746F2CEB…`, evidence `/Users/alexmunzon/chess-builds/tracker-wiring-2026-11-16/round2/`): the three new
+  checks passed in every round-2 run (4 of 4). Engine A/B against a build of the previous commit, 4 runs each, order alternated,
+  each launched after the 1-minute load fell below 8 (one baseline run's load rose to 16.8 at launch): engine deadline failures
+  5 of 100 analyses (changed) and 15 of 100 (baseline); the four launch fixture checks failed 0 of 16 and 4 of 16; existing checks
+  passed 116 of 120 and 106 of 120. Round 1's runs on a busier host (load 20 to 48) showed the opposite imbalance; that one did not
+  repeat here, so it is inferred to be host load. A copy whose `AppAdapters.swift` hardcoded `true` failed
+  `occupancy-tracker-off-refuses-every-request` (1 of 1 run).

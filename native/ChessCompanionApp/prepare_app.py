@@ -81,14 +81,15 @@ SPECIAL_REPLAY_FRAMES = {
 ALLOWED = {
     "index.html", "runtime.js", "core/device-backend.js", "core/worker-engine.js", "core/prewarmed-engine.js",
     "core/position.js", "core/move-speech.js", "core/observation.js", "core/device-game-session.js",
-    "core/replay-runtime.js", "vendor/chess.js",
+    "core/replay-runtime.js", "core/occupancy-tracker.js", "core/occupancy-move-inference.js", "vendor/chess.js",
     "engine/stockfish.js", "engine/stockfish.wasm", "licenses/Stockfish-Copying.txt",
     "licenses/chess.js-LICENSE", "THIRD_PARTY_NOTICES.md",
 }
 LOCAL_SOURCES = {
     "index.html": "native/ChessCompanionRuntime/index.html", "runtime.js": "native/ChessCompanionRuntime/runtime.js",
     **{f"core/{name}.js": f"src/core/{name}.js" for name in ["device-backend", "worker-engine", "prewarmed-engine", "position", "move-speech",
-                                                                 "observation", "device-game-session", "replay-runtime"]},
+                                                                 "observation", "device-game-session", "replay-runtime",
+                                                                 "occupancy-tracker", "occupancy-move-inference"]},
     "vendor/chess.js": "node_modules/chess.js/dist/esm/chess.js",
     "engine/stockfish.js": "node_modules/stockfish/bin/stockfish-19-single.js",
     "engine/stockfish.wasm": "node_modules/stockfish/bin/stockfish-19-single.wasm",
@@ -103,7 +104,7 @@ SOURCES = [
     "native/ChessCompanionIntegration/Adapters.swift", "native/ChessCompanionIntegration/RuntimeTransport.swift",
     "native/ChessCompanionIntegration/ReplayTracker.swift", "native/ChessCompanionIntegration/ReplayTrackerRuntimeTransport.swift",
     "native/ChessCompanionApp/OfflineStudy.swift", "native/ChessCompanionApp/ReplayGame.swift", "native/ChessCompanionApp/AppAdapters.swift",
-    "native/ChessCompanionApp/ChessCompanionApp.swift",
+    "native/ChessCompanionApp/TrackerSetting.swift", "native/ChessCompanionApp/ChessCompanionApp.swift",
 ]
 SELF_TEST_SOURCE = "native/ChessCompanionApp/SelfTest.swift"
 # Opt-in Simulator-only mock-glasses copy (docs/MOCK_GLASSES_RUN.md). Meta's code enters a build only

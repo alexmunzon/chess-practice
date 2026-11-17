@@ -28,7 +28,7 @@ private struct RuntimeManifest: Decodable {
 
 @MainActor
 private final class LocalRuntimeAssets: NSObject, WKURLSchemeHandler {
-    static let allowed: Set<String> = ["index.html", "runtime.js", "core/device-backend.js", "core/worker-engine.js", "core/prewarmed-engine.js", "core/position.js", "core/move-speech.js", "core/observation.js", "core/device-game-session.js", "core/replay-runtime.js", "vendor/chess.js", "engine/stockfish.js", "engine/stockfish.wasm", "licenses/Stockfish-Copying.txt", "licenses/chess.js-LICENSE", "THIRD_PARTY_NOTICES.md"]
+    static let allowed: Set<String> = ["index.html", "runtime.js", "core/device-backend.js", "core/worker-engine.js", "core/prewarmed-engine.js", "core/position.js", "core/move-speech.js", "core/observation.js", "core/device-game-session.js", "core/replay-runtime.js", "core/occupancy-tracker.js", "core/occupancy-move-inference.js", "vendor/chess.js", "engine/stockfish.js", "engine/stockfish.wasm", "licenses/Stockfish-Copying.txt", "licenses/chess.js-LICENSE", "THIRD_PARTY_NOTICES.md"]
     private let root: URL
     private let manifest: RuntimeManifest
     init(directory: URL) throws {
@@ -100,6 +100,11 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
     private let relay = RuntimeMessageRelay()
     private var webView: WKWebView?
     private var pending: Pending?
+    /// Second, separate slot used only by occupancy-tracker kinds (see `occupancyKinds`).
+    private var occupancyPending: Pending?
+    private var occupancyDeadlineTask: Task<Void, Never>?
+    /// The occupancy-tracker setting, fixed for this runtime's life (off unless the host passes true).
+    public let occupancyTrackerEnabled: Bool
     private var readyContinuation: CheckedContinuation<Void, any Error>?
     private var deadlineTask: Task<Void, Never>?
     private var startupTask: Task<Void, Never>?
@@ -117,6 +122,14 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
     public static let trackerKinds: Set<String> = ["initialize", "observe", "invalidate", "snapshot"]
     /// Spare-engine housekeeping. It carries no position and must never cost a real request its reply.
     static let prewarmKinds: Set<String> = ["prewarm", "cancelPrewarm"]
+    /// Occupancy-tracker commands (docs/OCCUPANCY_TRACKER.md "Wiring"); never carry `mode`. Refused with
+    /// "Occupancy tracker disabled." unless this runtime was created with `occupancyTracker: true`. They use their
+    /// own pending slot: they never cancel, wait for or are cancelled by an engine or replay request (the JS side
+    /// handles them synchronously without touching the engine). A second one while one is pending is refused.
+    /// `trackerAnswerPromotion` (the person's promotion piece) follows exactly the same rules as the other four.
+    public static let occupancyKinds: Set<String> = ["trackerStart", "trackerIngest", "trackerSnapshot", "trackerStop", "trackerAnswerPromotion"]
+    static let occupancyDisabledMessage = "Occupancy tracker disabled."
+    static let occupancyBusyMessage = "Runtime busy; occupancy tracker request refused."
     /// Single pending slot: a new request normally supersedes (cancels) the pending one. A prewarm or
     /// cancel-prewarm never supersedes a real engine or tracker request; it is refused instead (it is best effort).
     static func mayReplace(pendingKind: String?, with kind: String) -> Bool {
@@ -127,7 +140,8 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
         guard let number = value as? NSNumber else { return false }
         return CFGetTypeID(number) == CFBooleanGetTypeID() && !number.boolValue
     }
-    public init(resourceDirectory: URL) throws {
+    public init(resourceDirectory: URL, occupancyTracker: Bool = false) throws {
+        occupancyTrackerEnabled = occupancyTracker
         assets = try LocalRuntimeAssets(directory: resourceDirectory)
         super.init()
         relay.owner = self
@@ -160,13 +174,39 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
         } onCancel: { Task { @MainActor [weak self] in self?.failRuntime(NativeEngineRuntimeError.cancelled) } }
     }
     public func submit(commandJSON: String, timeoutMilliseconds: Int = 15_000) async throws -> String {
+        let object = commandJSON.utf8.count <= 16_384 ? (try? JSONSerialization.jsonObject(with: Data(commandJSON.utf8))) as? [String:Any] : nil
+        let parsedKind = object?["kind"] as? String
+        // Setting on: a command this side cannot classify (oversized, unparseable, no kind) may have been a tracker
+        // request, so it revokes too before it is refused below. With the setting off revokeOccupancy() does nothing.
+        if occupancyTrackerEnabled, parsedKind == nil { revokeOccupancy() }
+        if let kind = parsedKind, Self.occupancyKinds.contains(kind) {
+            // Setting off: every occupancy request is refused here, before readiness checks, slots or WebKit.
+            guard occupancyTrackerEnabled else { throw NativeEngineRuntimeError.unavailable(Self.occupancyDisabledMessage) }
+            // Setting on: a tracker request that fails on this side for ANY reason (cancelled, refused, timed out, a page
+            // error) revokes the page's tracker, so a request the caller sees as failed can never leave trust behind
+            // (a timed-out start that the page still ran, or a stop that never reached it). Page scripts run in the order
+            // they are sent, so the revoke runs after the failed request if that request reached the page at all.
+            do { return try await submitChecked(commandJSON: commandJSON, timeoutMilliseconds: timeoutMilliseconds) }
+            catch { revokeOccupancy(); throw error }
+        }
+        return try await submitChecked(commandJSON: commandJSON, timeoutMilliseconds: timeoutMilliseconds)
+    }
+    private func revokeOccupancy() {
+        guard occupancyTrackerEnabled, isReady, !closed, let webView else { return }
+        webView.evaluateJavaScript("globalThis.chessDeviceRuntime?.revokeOccupancy?.('native-request-failed');", completionHandler: nil)
+    }
+    private func submitChecked(commandJSON: String, timeoutMilliseconds: Int) async throws -> String {
         try Task.checkCancellation()
         guard isReady, !closed, let view = webView, (1...60_000).contains(timeoutMilliseconds), commandJSON.utf8.count <= 16_384,
               let bytes = commandJSON.data(using: .utf8), let command = try JSONSerialization.jsonObject(with: bytes) as? [String:Any],
               let requestId = command["requestId"] as? String, requestId.range(of: "^[A-Za-z0-9_.:/-]{1,128}$", options: .regularExpression) != nil,
               let kind = command["kind"] as? String,
               Self.engineKinds.contains(kind) && command["mode"] == nil ||
-              Self.trackerKinds.contains(kind) && command["mode"] as? String == "trusted-replay" else { throw NativeEngineRuntimeError.unavailable("Runtime not ready or command invalid.") }
+              Self.trackerKinds.contains(kind) && command["mode"] as? String == "trusted-replay" ||
+              Self.occupancyKinds.contains(kind) && command["mode"] == nil else { throw NativeEngineRuntimeError.unavailable("Runtime not ready or command invalid.") }
+        if Self.occupancyKinds.contains(kind) {
+            return try await submitOccupancy(commandJSON: commandJSON, requestId: requestId, kind: kind, view: view, timeoutMilliseconds: timeoutMilliseconds)
+        }
         let tracker = Self.trackerKinds.contains(kind)
         guard Self.mayReplace(pendingKind: pending?.kind, with: kind) else { throw NativeEngineRuntimeError.unavailable("Runtime busy; prewarm skipped.") }
         // Single pending request: a tracker request supersedes (cancels) any engine analysis and vice versa.
@@ -182,13 +222,43 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
                     self?.cancel(error: NativeEngineRuntimeError.timedOut)
                 }
                 if let current = pending, clock.now >= current.deadline { cancel(error: NativeEngineRuntimeError.timedOut); return }
-                view.callAsyncJavaScript("globalThis.chessDeviceRuntime.submit(commandJSON, transportId);", arguments: ["commandJSON":commandJSON, "transportId":transportId], in: nil, in: .page) { [weak self] result in
+                view.callAsyncJavaScript("globalThis.chessDeviceRuntime.submit(commandJSON, transportId, occupancyTracker);", arguments: ["commandJSON":commandJSON, "transportId":transportId, "occupancyTracker":occupancyTrackerEnabled], in: nil, in: .page) { [weak self] result in
                     guard case .failure(let error) = result, self?.pending?.transportId == transportId else { return }
                     self?.cancel(error: error)
                 }
                 if Task.isCancelled, pending?.transportId == transportId { cancel() }
             }
         } onCancel: { Task { @MainActor [weak self] in if self?.pending?.transportId == transportId { self?.cancel() } } }
+    }
+    /// Occupancy slot only. Never calls `cancel()`: an engine or replay request stays pending and keeps its reply.
+    private func submitOccupancy(commandJSON: String, requestId: String, kind: String, view: WKWebView, timeoutMilliseconds: Int) async throws -> String {
+        guard occupancyTrackerEnabled else { throw NativeEngineRuntimeError.unavailable(Self.occupancyDisabledMessage) }
+        // A stop is never refused: it supersedes a pending tracker request (whose caller then sees `cancelled`).
+        if kind == "trackerStop", occupancyPending != nil { settleOccupancy(error: NativeEngineRuntimeError.cancelled) }
+        guard occupancyPending == nil else { throw NativeEngineRuntimeError.unavailable(Self.occupancyBusyMessage) }
+        let transportId = UUID().uuidString
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                occupancyPending = Pending(transportId: transportId, requestId: requestId, kind: kind, tracker: false, deadline: clock.now.advanced(by: .milliseconds(timeoutMilliseconds)), continuation: continuation)
+                occupancyDeadlineTask = Task { [weak self] in
+                    do { try await Task.sleep(nanoseconds: UInt64(timeoutMilliseconds) * 1_000_000) }
+                    catch { return }
+                    guard self?.occupancyPending?.transportId == transportId else { return }
+                    self?.settleOccupancy(error: NativeEngineRuntimeError.timedOut)
+                }
+                view.callAsyncJavaScript("globalThis.chessDeviceRuntime.submit(commandJSON, transportId, occupancyTracker);", arguments: ["commandJSON":commandJSON, "transportId":transportId, "occupancyTracker":occupancyTrackerEnabled], in: nil, in: .page) { [weak self] result in
+                    guard case .failure(let error) = result, self?.occupancyPending?.transportId == transportId else { return }
+                    self?.settleOccupancy(error: error)
+                }
+                if Task.isCancelled, occupancyPending?.transportId == transportId { settleOccupancy(error: NativeEngineRuntimeError.cancelled) }
+            }
+        } onCancel: { Task { @MainActor [weak self] in if self?.occupancyPending?.transportId == transportId { self?.settleOccupancy(error: NativeEngineRuntimeError.cancelled) } } }
+    }
+    private func settleOccupancy(error: any Error) {
+        let previous = occupancyPending
+        occupancyPending = nil
+        occupancyDeadlineTask?.cancel(); occupancyDeadlineTask = nil
+        previous?.continuation.resume(throwing: error)
     }
     public func cancel() { cancel(error: NativeEngineRuntimeError.cancelled) }
     private func cancel(error: any Error) {
@@ -206,6 +276,7 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
         startupTask?.cancel(); startupTask = nil
         initial?.resume(throwing: error)
         cancel(error: error)
+        settleOccupancy(error: error)
         webView?.evaluateJavaScript("globalThis.chessDeviceRuntime?.shutdown();", completionHandler: nil)
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "chessRuntime")
         webView?.stopLoading(); webView?.navigationDelegate = nil
@@ -227,6 +298,7 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
         }
         if kind == "fatal" { failRuntime(NativeEngineRuntimeError.unavailable("Local engine initialization failed.")); return }
         guard kind == "reply", let transportId = envelope["transportId"] as? String else { failRuntime(NativeEngineRuntimeError.invalidReply); return }
+        if let current = occupancyPending, current.transportId == transportId { receiveOccupancy(envelope, current); return }
         guard let current = pending, current.transportId == transportId else { return } // Old callback cannot settle a newer request, even with reused caller IDs.
         guard clock.now < current.deadline else { cancel(error: NativeEngineRuntimeError.timedOut); return }
         if envelope["ok"] as? Bool == false {
@@ -243,6 +315,24 @@ public final class NativeEngineRuntime: NSObject, WKNavigationDelegate {
               resultBytes.count <= 128 * 1024, let resultText = String(data: resultBytes, encoding: .utf8) else { failRuntime(NativeEngineRuntimeError.invalidReply); return }
         guard clock.now < current.deadline else { cancel(error: NativeEngineRuntimeError.timedOut); return }
         pending = nil; deadlineTask?.cancel(); deadlineTask = nil
+        current.continuation.resume(returning: resultText)
+    }
+    /// Occupancy replies: same identity checks as engine replies, plus the occupancy mode with advice always denied.
+    private func receiveOccupancy(_ envelope: [String:Any], _ current: Pending) {
+        guard clock.now < current.deadline else { settleOccupancy(error: NativeEngineRuntimeError.timedOut); return }
+        if envelope["ok"] as? Bool == false {
+            let detail = envelope["error"] as? [String:Any]
+            settleOccupancy(error: NativeEngineRuntimeError.unavailable(String((detail?["message"] as? String ?? "Occupancy tracker refused.").prefix(512))))
+            return
+        }
+        guard envelope["ok"] as? Bool == true, let result = envelope["result"] as? [String:Any],
+              result["requestId"] as? String == current.requestId, result["kind"] as? String == current.kind,
+              result["schemaVersion"] as? Int == 1, result["runtime"] as? String == "on-device-local",
+              result["mode"] as? String == "occupancy-tracking", Self.isFalseBoolean(result["guidanceAllowed"]),
+              let ready = result["trackingReady"] as? NSNumber, CFGetTypeID(ready) == CFBooleanGetTypeID(),
+              JSONSerialization.isValidJSONObject(result), let resultBytes = try? JSONSerialization.data(withJSONObject: result),
+              resultBytes.count <= 128 * 1024, let resultText = String(data: resultBytes, encoding: .utf8) else { failRuntime(NativeEngineRuntimeError.invalidReply); return }
+        occupancyPending = nil; occupancyDeadlineTask?.cancel(); occupancyDeadlineTask = nil
         current.continuation.resume(returning: resultText)
     }
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {

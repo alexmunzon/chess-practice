@@ -8,6 +8,13 @@ numbers and the files that prove them are in [VERIFICATION.md](VERIFICATION.md),
 evidence log is `HANDOFF.md`. Two reader and corner-finder fix rounds were still running at that
 time; their numbers here are not final.
 
+**Update 2026-11-17 (afternoon session of 2026-11-16, from `FABLE-HANDOFF.md`; the statements above
+keep their original wording).** The latest commit is `e482729` on `main`, pushed on 2026-11-16 to
+the PRIVATE GitHub repo `alexmunzon/chess-practice` (remote `origin`, on Alex's words; every further
+push needs his words again). The afternoon session's work is uncommitted. Where an older statement
+below says "no remote", "not wired in", "not built" or "has not had its own review", the dated
+rows under "Afternoon session 2026-11-16" in the table below are the newer answer.
+
 ## Product goal
 
 A private chess practice companion whose whole runtime runs on Alex's iPhone 17 (iOS 27.2): it
@@ -63,6 +70,16 @@ physical-board accuracy. **Orchestrator-run** means the orchestrator ran the che
 | Mock glasses (Meta Mock Device Kit) in a Simulator-only app copy | Frames flow; every frame that reached the trust decision stayed "age unknown"; no advice, engine run or speech. No network contact seen, but a connection shorter than about a millisecond would be missed. Phone build byte-identical before and after. No real glasses involved | Simulator, mock device, agent-reported with orchestrator spot checks | `docs/MOCK_GLASSES_RUN.md`, `docs/MOCK_DEVICE_KIT_PLAN.md` |
 | Mock glasses frame-age methods | **No method rejected every stale frame**: on-screen code 159/162, clock offset 3224/3407 at best, budget plus watchdog 674/2190. The live trust gate is unchanged. **No real latency was measured** | Simulator, mock device, agent-reported; rule checks 38/38 orchestrator-run | [MOCK_GLASSES_FRAME_AGE.md](MOCK_GLASSES_FRAME_AGE.md) |
 | Evidence inventory | `chess-builds` holds 31.5 GB; about 9 GB are deletion candidates after Alex's OK. Nothing deleted | Mac (file sizes) | `chess-builds/session-review-2026-11-16/evidence-inventory.md` |
+| **Afternoon session 2026-11-16: checks** | `scripts/check-all.sh` 8 of 8 suites at 17:48; `npm test` 379 tests, 371 pass, 0 fail, 8 skipped (18:05). The script now also runs `tests/piece_classifier_v1.py` (9 suites; 11 of 11 on its own). All uncommitted | Mac, orchestrator-run | `scripts/check-all.sh`; `orchestrator-state.json` |
+| Occupancy tracker round 7/7b (`src/core/occupancy-tracker.js`, sha `04400009…770f`, 97 tests: 96 pass, 1 skipped) | Either-colour rule, capture-square rule, gap rule in tick/snapshot, replayed-picture revoke. Reviewed (sixth review). The orchestrator re-ran the reviewer's attacks: hidden-square swap 0 of 144, spare on hidden square 0 of 24, opponent piece 0 of 12, captured piece 0 of 12; 18 of 18 mutants caught (worker-reported). Cost: hand-over-board row 50.6 -> 61.8 re-reviews per 100. Supersedes the round 6 row above | Mac, pure logic, synthetic errors; attacks orchestrator-run, mutants worker-reported | `CB/tracker-round7-2026-11-16/`, `tracker-round7b-2026-11-16/`, `review-occupancy-tracker-round7-2026-11-16/` |
+| Tracker holes that STAY open (documented) | The moving piece itself swapped or substituted (5 of 5); an exchange completed between two consecutive pictures with nothing hidden (34 of 34); castling can end with king and rook interchanged (2 of 5); a bare `snapshot()` without a time stays ready. Only piece identification closes the first three | Mac, pure logic, synthetic errors | same folders |
+| Tracker wired into the app, OFF by default | Launch argument `--occupancy-tracker-on` (`TrackerSetting.swift`); four request kinds in their own pending slot; any failed tracker request revokes; stop is never refused; page gate independent. Reviewed twice; the second review's one finding (an unclassifiable command did not revoke) was fixed by the orchestrator in `NativeEngineRuntime.submit`, and the reviewer's harness then held 13 of 13. No picture source exists, so only scripted readings exercise it. `answerPromotion` is not wired (a promotion revokes) | Mac, Swift harnesses, scripted readings | `CB/tracker-wiring-2026-11-16/`, `review-tracker-wiring-2026-11-16/`, `review-tracker-wiring-round2-2026-11-16/` |
+| Phone self-test with the tracker wired in (tracker off) | 33 of 33 at 18:14 (30 old + 3 tracker checks), 1 of 1 run. Normal build `phone2/device-normal` (unsigned sha `ed426961…`) restored on the phone, tracker off | Real phone, scripted review, orchestrator-run | `CB/tracker-wiring-2026-11-16/phone-run1/` |
+| Simulator A/B on a calm host | Engine deadline misses 5 of 100 (changed) vs 15 of 100 (previous commit), order alternated, 4 runs each: the change did not slow the engine; the earlier imbalance was host load (worker-reported) | Simulator, agent-reported | `CB/tracker-wiring-2026-11-16/round2/ab-table.txt` |
+| Reader start backup (`START_FALLBACK_CLASSIFIER`, `--start-fallback v4`) | Built, OFF. v3.1 first, v4.3 only when v3.1 fits no orientation; the accepting reader reads the rest of the game; a self-check re-reads the start picture (all 64 squares must match). `stressdev` starts 27 -> 30 of 36, two-picture wrong moves 0 on 5 splits, fallback off identical to committed code (worker-reported); pipeline tests 40 of 40 (orchestrator-run). Alex decided 2026-11-16: v3.1 stays the default, v4.3 only as a start backup; the orchestrator recommends leaving the backup off | Mac, simulated images, worker-reported; tests orchestrator-run | `CB/reader-fallback-2026-11-16/` |
+| Reader v4.3 review (answers the older "no review of its own") | Verdict NO for the backup as first built: its start check accepted 66 of 107 not-the-start pictures in the flat style (orchestrator re-ran: 66 of 107). With the self-check: 11 of 107 (all an extra piece under an 80-95% layer in exactly the board colour). 9 of 24 removed rules are caught by no test. Later-picture reading held up | Simulated images, reviewer; 66 of 107 orchestrator-run | `CB/review-reader-v43-2026-11-16/` |
+| Piece reader prototype v1 (`scripts/recognition/piece_classifier_v1.py`, sha `e5c31e2ef64f…`, 11 tests) | Learns piece shapes from the reviewed start picture; names a piece only when the best match is 2x the second. Builder: dev2 25,619 of 28,257 correct, 0 wrong; stressdev 40,245 of 42,081, 0 wrong; swaps and substitutions none missed in 7,218 each. Review (counts reproduced): usable as a guard that can only WITHHOLD advice, not as confirmation. Confident-wrong found: mid-game start with reduced material 12 of 5,760; arrow or glare in the start picture 44 in 6 of 12 games; a kind never shown 81 of 6,689; mid-move pictures 5; heavy blur/lens 44 of 25,344. Not registered in the pipeline | Simulated images; builder numbers, review reproduced counts | `docs/PIECE_CLASSIFIER.md`; `CB/piece-classifier-2026-11-16/`, `review-piece-reader-2026-11-16/` |
+| Piece reader v2 (`scripts/recognition/piece_classifier_v2.py`, sha `c19efcf5…35b61`, 22 of 22 tests) | Built, review in progress 2026-11-17, numbers agent-reported (tests 22 of 22 re-run by the orchestrator). Confident-wrong 0 on every reviewer attack family (v1: 214) and on smoke2/dev2/stressdev; unsure rises to about 28% of occupied squares on dev2 and stressdev (v1: 9% and 4%); swaps missed 0 (dev2: 2,616 noticed, 417 cannot-tell of 3,033); false alarms 0; clean starts wrongly refused 3 of 64, 6 of 84, 17 of 128; names nothing on 8 of 12 low-contrast board looks; 12 of 14 mutants caught. Open design question: a kind learned from one start square is never named, so kings and queens are NEVER named in a standard game. Not wired | Simulated images, agent-reported | `CB/piece-classifier-v2-2026-11-16/` |
 
 The phone now has the optimized normal build (no self-test code) from
 `prewarm-wiring-2026-11-16/after2/device-normal` (sha256 `5ffa41a7…`), installed 2026-11-16 about
@@ -110,6 +127,17 @@ This is the handoff's backlog order (`FABLE-HANDOFF.md`, "Backlog").
 9. **Housekeeping:** refresh the private status page; a real-WebKit test of the engine-host-died
    path; evidence retention (31.5 GB, about 9 GB are candidates after Alex's OK).
 
+Update 2026-11-17 (handoff backlog): the start backup in item 1 is now built and off (see the
+afternoon rows above). Item 5: round 7b is reviewed and wired in OFF by default; left to do: wire
+`answerPromotion`, put the Swift gates under the repo's own check, fix the `RuntimeGuardChecks.swift`
+label (says 16 assets, now 18), and note that a far-future `trackerStart` time disables the tracker
+until the runtime is recreated (fails closed, documented). Whoever connects a picture source must
+guarantee the tracker doc's Wiring requirements. New packets: 10. piece reader v2 review, then a
+guard next to the tracker that can only revoke; 11. default reader v3.1 start check accepted 55 of
+107 not-the-start pictures in the classic style (the person's review of the start covers it today;
+candidate: the same self-check on v3.1 starts, cost measured first); 12. reader v4 tests: 9 of 24
+removed rules are caught by no test.
+
 Earlier packets now done: the pipeline's start-up reader is v3; the Swift port of the square
 reader; stress scenes; the first Simulator run of Meta's mock-glasses code; the pre-started engine
 and the 100,000-node search on the phone.
@@ -132,6 +160,16 @@ and the 100,000-node search on the phone.
 - What to keep of the 31.5 GB of evidence (inventory file above).
 - Commit: nothing since `46ce560` is committed; commit only when Alex asks.
 - Sharing the app with anyone first needs the licence steps in `docs/LICENCE_AUDIT.md`.
+
+Update 2026-11-17 (handoff "Decisions waiting on Alex"; the list above keeps its wording):
+- Occupancy tracker: DECIDED 2026-11-16 (Alex): one more fix round, then wired in switched off.
+  Done. Open for him: whether to continue with the piece reader round 2, which is what makes the
+  tracker worth switching on.
+- Reader start backup: built and off; switch it on or leave it (orchestrator: leave it off).
+- Off-machine backup: DONE 2026-11-16, private GitHub repo `alexmunzon/chess-practice` (the
+  orchestrator searched all pushed commits for his Apple ID email and team ID: 0 occurrences). Each
+  push needs his words.
+- Commit: the afternoon session's work is uncommitted; commit and push only when he asks, each time.
 
 ## Boundaries
 
@@ -170,6 +208,12 @@ engine files and media stay outside the repo (in `/Users/alexmunzon/chess-builds
   800k-node search. Slow searches seen in the Simulator are unexplained; every one failed safe.
 - **Occupancy tracker hole.** Occupancy alone cannot tell which piece is on a square, so a swap
   under a hand can be trusted. It is not wired in.
+  *Update 2026-11-17:* after round 7b it is wired in but OFF by default, with no picture source;
+  the holes listed in the afternoon rows stay open (moving piece swapped 5 of 5; exchange between
+  two pictures 34 of 34; castling king and rook interchanged 2 of 5; bare `snapshot()` stays ready).
+- **Piece readers are guards only.** Piece reader v1 can only withhold advice, not confirm a
+  position; v2 is built, review in progress, numbers agent-reported, and never names kings or
+  queens in a standard game. Neither is in the pipeline.
 - **Corner finder and lenses.** The curved-edge check is not a guard: lens-distorted boards can
   still pass with wrong corners. The pipeline needs lens undistortion.
 - **Not exercised for real:** the `onClose` path; `renew_profile.sh`; game switching during a
@@ -192,5 +236,9 @@ engine files and media stay outside the repo (in `/Users/alexmunzon/chess-builds
   rejected once and re-fixed; corner finder curved-edge check; occupancy tracker rounds 5 and 6
   after five reviews; first mock-glasses Simulator runs and the frame-age study; evidence
   inventory. Docs refreshed at the handoff (about 05:45; reader v4.1 notes from 06:40).
+- **Nov 16 afternoon session:** private GitHub repo created and `e482729` pushed; tracker round 7/7b
+  reviewed and wired in OFF (phone self-test 33 of 33); reader start backup built and off; reader
+  v4.3 reviewed; piece reader v1 built and reviewed; piece reader v2 built, review in progress
+  2026-11-17. Docs refreshed 2026-11-17.
 
 The full earlier text of this plan is in git: `git show a13ed1c:docs/PLAN.md`.
